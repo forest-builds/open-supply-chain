@@ -1,0 +1,19 @@
+source_name: noaa_nws_alerts
+api_url: https://api.weather.gov/alerts/active
+auth_required: false
+refresh_rate: every_5_minutes
+raw_schema: nws_alert_geojson
+canonical_entities_created:
+  - risk_events
+cleaning_rules:
+  - preserve raw NWS GeoJSON in raw_ingestions
+  - normalize alert id as source_event_id
+  - convert alert geometry to PostGIS when present
+  - keep alert properties in source_tags JSONB
+join_keys:
+  - id
+geo_fields:
+  - geometry
+confidence_score: 0.95
+license: U.S. Government Work (public domain)
+attribution: NOAA National Weather Service

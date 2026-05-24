@@ -1,0 +1,32 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "ny_nj_ct",
+        "name": "New York, New Jersey, Connecticut",
+        "description": "Initial AOI for the open supply-chain MVP."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-75.56, 38.93],
+            [-74.96, 38.93],
+            [-74.12, 39.75],
+            [-73.94, 40.58],
+            [-71.79, 41.32],
+            [-71.79, 42.05],
+            [-73.50, 42.05],
+            [-73.35, 45.01],
+            [-79.76, 42.27],
+            [-79.76, 42.00],
+            [-75.36, 41.35],
+            [-75.56, 38.93]
+          ]
+        ]
+      }
+    }
+  ]
+}

@@ -206,6 +206,15 @@ tempCodeRunnerFile.py
 # Ruff stuff:
 .ruff_cache/
 
+# Node / Vite
+node_modules/
+app/map_ui/node_modules/
+app/map_ui/dist/
+
+# Source payloads
+sources/*/raw/
+sources/*/extracts/
+
 # PyPI configuration file
 .pypirc
 
@@ -216,3 +225,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+_bmad-output/
+
+.gitnexus/

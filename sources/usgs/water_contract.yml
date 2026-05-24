@@ -1,0 +1,19 @@
+source_name: usgs_water
+api_url: https://waterservices.usgs.gov/nwis/site/
+auth_required: false
+refresh_rate: monthly
+raw_schema: nwis_site_rdb
+canonical_entities_created:
+  - geo_entities (location / stream_gauge)
+cleaning_rules:
+  - parse RDB tab-delimited format (skip # comment lines and format-spec row)
+  - include site types ST (stream), ES (estuary), LK (lake)
+  - require dec_lat_va and dec_long_va to be present
+  - store site_no, huc_cd, drain_area_va, site_tp_cd in source_tags
+join_keys:
+  - site_no
+geo_fields:
+  - dec_lat_va / dec_long_va (Point)
+confidence_score: 0.95
+license: U.S. Government Work (public domain)
+attribution: U.S. Geological Survey Water Resources Mission Area

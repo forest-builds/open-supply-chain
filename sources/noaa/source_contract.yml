@@ -1,0 +1,20 @@
+source_name: noaa_cdo
+api_url: https://www.ncdc.noaa.gov/cdo-web/api/v2
+auth_required: true
+refresh_rate: monthly
+raw_schema: noaa_cdo_json
+canonical_entities_created:
+  - locations
+cleaning_rules:
+  - preserve raw CDO JSON in raw_ingestions
+  - normalize station IDs as source_entity_id (e.g. GHCND:USW00014734)
+  - keep all station metadata in source_tags JSONB
+  - convert lat/lon to PostGIS Point geometry
+join_keys:
+  - id
+geo_fields:
+  - latitude
+  - longitude
+confidence_score: 0.95
+license: U.S. Government Work (public domain)
+attribution: NOAA National Centers for Environmental Information

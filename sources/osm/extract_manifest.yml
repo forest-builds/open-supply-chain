@@ -1,0 +1,19 @@
+provider: geofabrik
+license: ODbL 1.0
+attribution: OpenStreetMap contributors
+regions:
+  connecticut:
+    name: Connecticut
+    url: https://download.geofabrik.de/north-america/us/connecticut-latest.osm.pbf
+    md5_url: https://download.geofabrik.de/north-america/us/connecticut-latest.osm.pbf.md5
+    scope: tri_state
+  new_jersey:
+    name: New Jersey
+    url: https://download.geofabrik.de/north-america/us/new-jersey-latest.osm.pbf
+    md5_url: https://download.geofabrik.de/north-america/us/new-jersey-latest.osm.pbf.md5
+    scope: tri_state
+  new_york:
+    name: New York
+    url: https://download.geofabrik.de/north-america/us/new-york-latest.osm.pbf
+    md5_url: https://download.geofabrik.de/north-america/us/new-york-latest.osm.pbf.md5
+    scope: tri_state
