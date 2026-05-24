@@ -1,0 +1,19 @@
+source_name: usgs_earthquakes
+api_url: https://earthquake.usgs.gov/fdsnws/event/1/query
+auth_required: false
+refresh_rate: hourly
+raw_schema: usgs_earthquake_geojson
+canonical_entities_created:
+  - risk_events
+cleaning_rules:
+  - preserve raw USGS GeoJSON in raw_ingestions
+  - derive severity from magnitude (M6+=Extreme, M4.5+=Severe, M3+=Moderate, else Minor)
+  - drop z-coordinate (depth) from geometry — store depth_km in source_tags
+  - normalize USGS event id as source_event_id
+join_keys:
+  - id
+geo_fields:
+  - geometry (Point)
+confidence_score: 0.95
+license: U.S. Government Work (public domain)
+attribution: U.S. Geological Survey Earthquake Hazards Program
