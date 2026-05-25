@@ -109,6 +109,76 @@ h1 {
   font-size: 16px;
 }
 
+.alert-list {
+  margin: 0 0 14px;
+}
+
+.alert-list-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 6px;
+  color: #6b5419;
+  font-size: 12px;
+}
+
+.alert-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 6px 8px;
+  margin-bottom: 3px;
+  border: 1px solid rgba(207, 74, 58, 0.18);
+  border-radius: 5px;
+  background: rgba(255, 245, 240, 0.7);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s;
+}
+
+.alert-row:hover {
+  background: rgba(207, 74, 58, 0.1);
+}
+
+.alert-row.is-selected {
+  border-color: rgba(207, 74, 58, 0.6);
+  background: rgba(207, 74, 58, 0.12);
+}
+
+.alert-row-type {
+  font-size: 12px;
+  color: #3a2218;
+}
+
+.alert-row-sev {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 9px;
+  letter-spacing: 0.02em;
+}
+
+.alert-row-sev--moderate {
+  background: rgba(230, 130, 30, 0.18);
+  color: #a05a10;
+}
+
+.alert-row-sev--minor {
+  background: rgba(55, 170, 65, 0.15);
+  color: #2a6e30;
+}
+
+.alert-row-sev--severe {
+  background: rgba(207, 52, 40, 0.18);
+  color: #9a1e1a;
+}
+
+.alert-row-sev--extreme {
+  background: rgba(120, 0, 180, 0.18);
+  color: #6a0090;
+}
+
 .impact-summary {
   display: grid;
   gap: 6px;

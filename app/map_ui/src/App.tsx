@@ -279,7 +279,7 @@ export function App() {
   const streamGauges = useStreamGauges(visibleLayers.streamGauges);
   const riskEvents = useRiskEvents(visibleLayers.alerts);
   const riskImpacts = useRiskImpacts(selectedRiskEventId);
-  const riskScores = useRiskScores(visibleLayers.riskScores);
+  const riskScores = useRiskScores(true); // always load so count is accurate
   const summary = useSummary();
   const riskSummary = useRiskSummary();
   const activeRiskCount = riskSummary.reduce((total, item) => total + item.count, 0);
@@ -554,6 +554,32 @@ export function App() {
             badge={atRiskGaugeCount > 0 ? `${atRiskGaugeCount} at risk` : undefined}
           />
         </section>
+
+        {riskEvents.data.features.length > 0 && (
+          <section className="alert-list">
+            <div className="alert-list-label">
+              <AlertTriangle size={13} aria-hidden />
+              <span>Active Alerts</span>
+            </div>
+            {riskEvents.data.features.map((f) => {
+              const p = f.properties;
+              const id = String((f as unknown as { id?: unknown }).id ?? "");
+              const isSelected = selectedRiskEventId === id;
+              return (
+                <button
+                  key={id}
+                  className={`alert-row${isSelected ? " is-selected" : ""}`}
+                  onClick={() => handleFeatureClick(f as { id?: unknown; properties?: Record<string, unknown> })}
+                >
+                  <span className="alert-row-type">{String(p.event_type ?? "")}</span>
+                  <span className={`alert-row-sev alert-row-sev--${String(p.severity ?? "").toLowerCase()}`}>
+                    {String(p.severity ?? "")}
+                  </span>
+                </button>
+              );
+            })}
+          </section>
+        )}
 
         {selectedFeature && (
           <section className="impact-summary">
