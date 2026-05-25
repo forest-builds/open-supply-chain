@@ -1,5 +1,8 @@
 # open-supply-chain
 
+[![Live Map](https://img.shields.io/badge/live%20map-GitHub%20Pages-blue?logo=github)](https://forest-builds.github.io/open-supply-chain/)
+
+
 Open supply-chain intelligence infrastructure for mapping how goods, risks,
 organizations, facilities, ports, and routes interact.
 
