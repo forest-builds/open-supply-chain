@@ -1,0 +1,14 @@
+.env
+.git
+.claude
+app/map_ui/node_modules
+app/map_ui/dist
+app/map_ui/.vite
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.ruff_cache
+docs/
+pipelines/
+tests/

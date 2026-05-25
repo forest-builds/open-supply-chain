@@ -1,0 +1,25 @@
+app = "open-supply-chain-api"
+primary_region = "iad"
+
+[build]
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/health"
+
+[env]
+  CORS_ORIGINS = '["https://forest-builds.github.io"]'
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
