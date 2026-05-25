@@ -3,7 +3,7 @@ import DeckGL from "@deck.gl/react";
 import { GeoJsonLayer } from "@deck.gl/layers";
 import { TileLayer } from "@deck.gl/geo-layers";
 import { BitmapLayer } from "@deck.gl/layers";
-import { AlertTriangle, Box, Database, Droplets, MapPinned, MessageSquare, Route, Send, ShieldAlert, Thermometer, Warehouse } from "lucide-react";
+import { AlertTriangle, Box, Database, Droplets, MapPinned, MessageSquare, Route, Send, ShieldAlert, Warehouse, X } from "lucide-react";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
@@ -40,6 +40,11 @@ type ChatMessage = {
   content: string;
 };
 
+type SelectedFeature = {
+  id: string;
+  properties: Record<string, unknown>;
+} | null;
+
 const INITIAL_VIEW_STATE = {
   longitude: -74.22,
   latitude: 41.05,
@@ -74,6 +79,7 @@ function titleize(value: unknown) {
 function tooltipHtml(props: Record<string, unknown>) {
   const isRiskEvent = props.record_type === "risk_event" || Boolean(props.event_type);
   const isRiskScore = props.record_type === "risk_score";
+  const isGauge = props.record_type === "stream_gauge";
   const title = isRiskEvent
     ? props.headline || props.event_type || "NOAA alert"
     : props.name || props.subtype || props.entity_type || "Supply-chain entity";
@@ -83,7 +89,6 @@ function tooltipHtml(props: Record<string, unknown>) {
         ["Severity", props.severity],
         ["Area", props.area_desc],
         ["Source", props.source_name],
-        ["ID", props.source_event_id]
       ]
     : isRiskScore
     ? [
@@ -91,16 +96,21 @@ function tooltipHtml(props: Record<string, unknown>) {
         ["Risk score", props.risk_score],
         ["Top severity", props.top_severity],
         ["Alerts", props.impact_count],
-        ["Source", props.source_name]
+      ]
+    : isGauge
+    ? [
+        ["Status", props.at_risk ? "⚠ At risk" : "Normal"],
+        ["Active alerts", props.active_alert_count],
+        ["Site", (props.source_tags as Record<string, unknown>)?.site_no],
+        ["Type", (props.source_tags as Record<string, unknown>)?.site_type_label],
       ]
     : [
         ["Type", titleize(props.entity_type)],
         ["Subtype", props.subtype],
         ["Source", props.source_name],
-        ["ID", props.source_entity_id]
       ];
   const detail = rows
-    .filter(([, value]) => value)
+    .filter(([, value]) => value != null && value !== "")
     .map(([label, value]) => `<span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong>`)
     .join("");
 
@@ -124,6 +134,25 @@ function useGeoJson(entityType: string, enabled = true, subtype?: string) {
       .then(setData)
       .finally(() => setLoading(false));
   }, [enabled, entityType, subtype]);
+
+  return { data, loading };
+}
+
+function useStreamGauges(enabled = true) {
+  const [data, setData] = useState<FeatureCollection>({ type: "FeatureCollection", features: [] });
+  const [loading, setLoading] = useState(enabled);
+
+  useEffect(() => {
+    if (!enabled) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    fetch(`${API_BASE_URL}/geo/stream-gauges`)
+      .then((r) => r.json())
+      .then(setData)
+      .finally(() => setLoading(false));
+  }, [enabled]);
 
   return { data, loading };
 }
@@ -222,8 +251,13 @@ function useRiskSummary() {
   return summary;
 }
 
+function gaugeColor(atRisk: boolean): [number, number, number, number] {
+  return atRisk ? [220, 60, 50, 240] : [30, 130, 180, 200];
+}
+
 export function App() {
   const [selectedRiskEventId, setSelectedRiskEventId] = useState<string | null>(null);
+  const [selectedFeature, setSelectedFeature] = useState<SelectedFeature>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
@@ -236,15 +270,13 @@ export function App() {
     ports: true,
     alerts: true,
     riskScores: false,
-    weatherStations: false,
-    streamGauges: false,
+    streamGauges: true,
   });
 
   const ports = useGeoJson("port", visibleLayers.ports);
   const facilities = useGeoJson("facility", visibleLayers.facilities);
   const routes = useGeoJson("route", visibleLayers.routes);
-  const weatherStations = useGeoJson("location", visibleLayers.weatherStations, "weather_station");
-  const streamGauges = useGeoJson("location", visibleLayers.streamGauges, "stream_gauge");
+  const streamGauges = useStreamGauges(visibleLayers.streamGauges);
   const riskEvents = useRiskEvents(visibleLayers.alerts);
   const riskImpacts = useRiskImpacts(selectedRiskEventId);
   const riskScores = useRiskScores(visibleLayers.riskScores);
@@ -254,10 +286,29 @@ export function App() {
   const routeCount = summary.find((item) => item.entity_type === "route")?.count ?? 0;
   const facilityCount = summary.find((item) => item.entity_type === "facility")?.count ?? 0;
   const portCount = summary.find((item) => item.entity_type === "port")?.count ?? 0;
+  const atRiskGaugeCount = streamGauges.data.features.filter(
+    (f) => f.properties.at_risk
+  ).length;
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView?.({ behavior: "smooth" });
   }, [chatMessages, chatLoading]);
+
+  function handleFeatureClick(object: { id?: unknown; properties?: Record<string, unknown> } | null) {
+    if (!object) {
+      setSelectedFeature(null);
+      setSelectedRiskEventId(null);
+      return;
+    }
+    const props = object.properties ?? {};
+    const id = String(object.id ?? "");
+    setSelectedFeature({ id, properties: props });
+    if (props.record_type === "risk_event") {
+      setSelectedRiskEventId(id);
+    } else {
+      setSelectedRiskEventId(null);
+    }
+  }
 
   async function sendChat() {
     const content = chatInput.trim();
@@ -361,28 +412,19 @@ export function App() {
       getLineWidth: 1
     });
 
-    const weatherStationLayer = new GeoJsonLayer({
-      id: "weather-stations",
-      data: weatherStations.data as never,
-      pickable: true,
-      stroked: true,
-      filled: true,
-      pointRadiusMinPixels: 4,
-      getFillColor: layerColors.location,
-      getLineColor: [10, 110, 110, 230],
-      getLineWidth: 1
-    });
-
     const streamGaugeLayer = new GeoJsonLayer({
       id: "stream-gauges",
       data: streamGauges.data as never,
       pickable: true,
       stroked: true,
       filled: true,
-      pointRadiusMinPixels: 3,
-      getFillColor: [30, 130, 180, 200],
-      getLineColor: [10, 80, 130, 230],
-      getLineWidth: 1
+      pointRadiusMinPixels: 4,
+      getFillColor: (f: { properties: { at_risk?: boolean } }) =>
+        gaugeColor(Boolean(f.properties.at_risk)),
+      getLineColor: (f: { properties: { at_risk?: boolean } }) =>
+        f.properties.at_risk ? [160, 30, 20, 255] : [10, 80, 130, 230],
+      getLineWidth: 1,
+      updateTriggers: { getFillColor: [streamGauges.data], getLineColor: [streamGauges.data] },
     });
 
     const riskLayer = new GeoJsonLayer({
@@ -450,19 +492,25 @@ export function App() {
       visibleLayers.alerts ? riskLayer : null,
       riskImpactLayer,
       riskScoreLayer,
-      visibleLayers.weatherStations ? weatherStationLayer : null,
       visibleLayers.streamGauges ? streamGaugeLayer : null,
       visibleLayers.facilities ? facilityLayer : null,
       visibleLayers.ports ? portLayer : null,
       chatResultLayer,
     ].filter(Boolean);
-  }, [facilities.data, weatherStations.data, streamGauges.data, ports.data, riskEvents.data, riskImpacts.data, riskScores.data, routes.data, selectedRiskEventId, visibleLayers, chatToolResult]);
+  }, [facilities.data, streamGauges.data, ports.data, riskEvents.data, riskImpacts.data, riskScores.data, routes.data, selectedRiskEventId, visibleLayers, chatToolResult]);
 
   const isLoading =
-    ports.loading || facilities.loading || routes.loading || weatherStations.loading || streamGauges.loading || riskEvents.loading || riskImpacts.loading || riskScores.loading;
+    ports.loading || facilities.loading || routes.loading || streamGauges.loading || riskEvents.loading || riskImpacts.loading || riskScores.loading;
   const setLayerVisibility = (layer: keyof typeof visibleLayers, value: boolean) => {
     setVisibleLayers((current) => ({ ...current, [layer]: value }));
   };
+
+  const selectedName = selectedFeature
+    ? String(selectedFeature.properties.name || selectedFeature.properties.event_type || selectedFeature.properties.entity_type || "Entity")
+    : null;
+  const selectedType = selectedFeature
+    ? String(selectedFeature.properties.record_type || selectedFeature.properties.entity_type || "")
+    : null;
 
   return (
     <main>
@@ -475,13 +523,7 @@ export function App() {
           const props = object.properties ?? {};
           return { html: tooltipHtml(props) };
         }}
-        onClick={({ object }) => {
-          if (!object) return;
-          const props = object.properties ?? {};
-          if (props.record_type === "risk_event") {
-            setSelectedRiskEventId(String(object.id));
-          }
-        }}
+        onClick={({ object }) => handleFeatureClick(object as { id?: unknown; properties?: Record<string, unknown> } | null)}
       />
 
       <aside className="panel">
@@ -504,31 +546,51 @@ export function App() {
             onClick={() => setLayerVisibility("riskScores", !visibleLayers.riskScores)}
           />
           <LayerCard
-            icon={<Thermometer size={17} />}
-            label="Weather Stations"
-            value={weatherStations.data.features.length}
-            active={visibleLayers.weatherStations}
-            onClick={() => setLayerVisibility("weatherStations", !visibleLayers.weatherStations)}
-            secondary
-          />
-          <LayerCard
             icon={<Droplets size={17} />}
             label="Stream Gauges"
             value={streamGauges.data.features.length}
             active={visibleLayers.streamGauges}
             onClick={() => setLayerVisibility("streamGauges", !visibleLayers.streamGauges)}
-            secondary
+            badge={atRiskGaugeCount > 0 ? `${atRiskGaugeCount} at risk` : undefined}
           />
         </section>
 
-        {selectedRiskEventId && (
+        {selectedFeature && (
           <section className="impact-summary">
             <div className="impact-summary-label">
-              <AlertTriangle size={13} aria-hidden />
-              <span>Impact Network</span>
+              {selectedType === "risk_event" ? <AlertTriangle size={13} aria-hidden /> : <MapPinned size={13} aria-hidden />}
+              <span>{titleize(selectedType ?? "entity")}</span>
+              <button
+                className="impact-summary-close"
+                onClick={() => { setSelectedFeature(null); setSelectedRiskEventId(null); }}
+                aria-label="Dismiss"
+              >
+                <X size={12} />
+              </button>
             </div>
-            <strong>{riskImpacts.data.features.length.toLocaleString()} linked assets</strong>
-            <span>{riskImpacts.loading ? "Loading persisted impact edges..." : "Stored from risk_impacts evidence"}</span>
+            <strong>{selectedName}</strong>
+            {Boolean(selectedFeature.properties.subtype) && (
+              <span>{titleize(selectedFeature.properties.subtype)}</span>
+            )}
+            {Boolean(selectedFeature.properties.severity) && (
+              <span>Severity: {String(selectedFeature.properties.severity)}</span>
+            )}
+            {Boolean(selectedFeature.properties.area_desc) && (
+              <span>{String(selectedFeature.properties.area_desc)}</span>
+            )}
+            {selectedFeature.properties.at_risk != null && (
+              <span style={{ color: selectedFeature.properties.at_risk ? "#dc3c32" : "#1e82b4" }}>
+                {selectedFeature.properties.at_risk
+                  ? `⚠ At risk · ${selectedFeature.properties.active_alert_count} active alert(s)`
+                  : "Normal — no active alerts within 5 km"}
+              </span>
+            )}
+            {selectedRiskEventId && (
+              <>
+                <strong>{riskImpacts.data.features.length.toLocaleString()} linked assets</strong>
+                <span>{riskImpacts.loading ? "Loading impact network…" : "Stored risk_impacts edges"}</span>
+              </>
+            )}
           </section>
         )}
 
@@ -608,25 +670,26 @@ function LayerCard({
   value,
   active,
   onClick,
-  secondary = false
+  badge,
 }: {
   icon: React.ReactNode;
   label: string;
   value: number;
   active: boolean;
   onClick: () => void;
-  secondary?: boolean;
+  badge?: string;
 }) {
   return (
     <button
       type="button"
-      className={`layer-card${active ? " is-active" : ""}${secondary ? " is-secondary" : ""}`}
+      className={`layer-card${active ? " is-active" : ""}`}
       aria-pressed={active}
       onClick={onClick}
     >
       <span className="layer-card-label">
         {icon}
         <span>{label}</span>
+        {badge && <span className="layer-card-badge">{badge}</span>}
       </span>
       <strong>{value.toLocaleString()}</strong>
     </button>

@@ -89,8 +89,15 @@ h1 {
   color: #17211c;
 }
 
-.layer-card.is-secondary {
-  opacity: 0.82;
+.layer-card-badge {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 9px;
+  background: rgba(220, 60, 50, 0.15);
+  color: #c0392b;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 .layer-card-label {
@@ -120,6 +127,25 @@ h1 {
   gap: 7px;
   color: #6b5419;
   font-size: 12px;
+}
+
+.impact-summary-close {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border: none;
+  background: none;
+  color: #6b5419;
+  cursor: pointer;
+  border-radius: 3px;
+  opacity: 0.7;
+}
+
+.impact-summary-close:hover {
+  opacity: 1;
+  background: rgba(0,0,0,0.08);
 }
 
 .impact-summary strong {

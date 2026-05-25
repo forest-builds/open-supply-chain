@@ -453,6 +453,57 @@ def geo_sources() -> list[dict]:
         return []
 
 
+@router.get("/geo/stream-gauges")
+def list_stream_gauges() -> dict:
+    """Stream gauges with at_risk flag: true when an active risk event is within 5 km."""
+    try:
+        with get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                  ge.id::text,
+                  ge.name,
+                  ge.source_name,
+                  ge.source_entity_id,
+                  ge.source_tags,
+                  ST_AsGeoJSON(ge.geometry)::json AS geometry,
+                  COUNT(re.id) > 0 AS at_risk,
+                  COUNT(re.id)::int AS active_alert_count
+                FROM geo_entities ge
+                LEFT JOIN risk_events re
+                  ON ST_DWithin(ge.geometry::geography, re.geometry::geography, 5000)
+                  AND (re.expires_at IS NULL OR re.expires_at > NOW())
+                WHERE ge.subtype = 'stream_gauge'
+                GROUP BY ge.id, ge.name, ge.source_name, ge.source_entity_id, ge.source_tags, ge.geometry
+                ORDER BY at_risk DESC, ge.name NULLS LAST
+                """
+            ).fetchall()
+    except psycopg.OperationalError:
+        return feature_collection([])
+
+    return feature_collection(
+        [
+            {
+                "type": "Feature",
+                "id": row["id"],
+                "properties": {
+                    "record_type": "stream_gauge",
+                    "entity_type": "location",
+                    "subtype": "stream_gauge",
+                    "name": row["name"],
+                    "source_name": row["source_name"],
+                    "source_entity_id": row["source_entity_id"],
+                    "source_tags": row["source_tags"],
+                    "at_risk": row["at_risk"],
+                    "active_alert_count": row["active_alert_count"],
+                },
+                "geometry": row["geometry"],
+            }
+            for row in rows
+        ]
+    )
+
+
 @router.get("/geo/summary")
 def geo_summary() -> list[dict]:
     try:
