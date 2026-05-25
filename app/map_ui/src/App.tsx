@@ -3,7 +3,21 @@ import DeckGL from "@deck.gl/react";
 import { GeoJsonLayer } from "@deck.gl/layers";
 import { TileLayer } from "@deck.gl/geo-layers";
 import { BitmapLayer } from "@deck.gl/layers";
-import { AlertTriangle, Box, Database, Droplets, MapPinned, MessageSquare, Route, Send, ShieldAlert, Warehouse, X } from "lucide-react";
+import { layout, prepare } from "@chenglou/pretext";
+import {
+  Activity,
+  AlertTriangle,
+  Brain,
+  Clock3,
+  MapPinned,
+  MessageSquare,
+  PanelLeftClose,
+  PanelLeftOpen,
+  RadioTower,
+  Send,
+  Sparkles,
+  X,
+} from "lucide-react";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
@@ -14,11 +28,6 @@ type FeatureCollection = {
     properties: Record<string, unknown>;
     geometry: Record<string, unknown>;
   }>;
-};
-
-type SummaryRow = {
-  entity_type: string;
-  count: number;
 };
 
 type RiskSummaryRow = {
@@ -45,6 +54,27 @@ type SelectedFeature = {
   properties: Record<string, unknown>;
 } | null;
 
+type IntelligenceMode = "live" | "flow" | "scenario" | "intelligence" | "memory";
+
+// Layer visibility set for a given mode
+type LayerSet = {
+  routes: boolean;
+  facilities: boolean;
+  ports: boolean;
+  alerts: boolean;
+  riskScores: boolean | "auto"; // "auto" = on whenever active alerts exist
+  streamGauges: boolean;
+};
+
+// Scalable config: add/change modes here without touching component logic
+const MODE_LAYERS: Record<IntelligenceMode, LayerSet> = {
+  live:         { routes: true,  facilities: true,  ports: true, alerts: true,  riskScores: "auto", streamGauges: true  },
+  flow:         { routes: true,  facilities: true,  ports: true, alerts: false, riskScores: false,  streamGauges: false },
+  scenario:     { routes: true,  facilities: true,  ports: true, alerts: true,  riskScores: true,   streamGauges: false },
+  intelligence: { routes: false, facilities: true,  ports: true, alerts: true,  riskScores: true,   streamGauges: true  },
+  memory:       { routes: true,  facilities: true,  ports: true, alerts: false, riskScores: false,  streamGauges: false },
+};
+
 const INITIAL_VIEW_STATE = {
   longitude: -74.22,
   latitude: 41.05,
@@ -54,12 +84,34 @@ const INITIAL_VIEW_STATE = {
 };
 
 const layerColors: Record<string, [number, number, number, number]> = {
-  port: [32, 117, 153, 230],
-  facility: [184, 96, 54, 220],
-  route: [58, 124, 79, 210],
+  port: [25, 105, 138, 240],
+  facility: [205, 104, 64, 230],
+  route: [29, 132, 148, 225],
   location: [20, 160, 160, 200],
-  risk: [207, 74, 58, 110]
+  risk: [221, 86, 58, 96]
 };
+
+function canMeasureText() {
+  if (typeof document === "undefined") return false;
+  if (typeof navigator !== "undefined" && navigator.userAgent.toLowerCase().includes("jsdom")) {
+    return false;
+  }
+  try {
+    return Boolean(document.createElement("canvas").getContext("2d"));
+  } catch {
+    return false;
+  }
+}
+
+function measureNarrativeHeight(text: string) {
+  if (!canMeasureText()) return 0;
+  try {
+    const prepared = prepare(text, "13px Inter");
+    return layout(prepared, 344, 18).height;
+  } catch {
+    return 0;
+  }
+}
 
 function escapeHtml(value: unknown) {
   return String(value ?? "")
@@ -176,19 +228,6 @@ function useRiskEvents(enabled = true) {
   return { data, loading };
 }
 
-function useSummary() {
-  const [summary, setSummary] = useState<SummaryRow[]>([]);
-
-  useEffect(() => {
-    fetch(`${API_BASE_URL}/geo/summary`)
-      .then((response) => response.json())
-      .then(setSummary)
-      .catch(() => setSummary([]));
-  }, []);
-
-  return summary;
-}
-
 function useRiskImpacts(eventId: string | null) {
   const [data, setData] = useState<FeatureCollection>({ type: "FeatureCollection", features: [] });
   const [loading, setLoading] = useState(false);
@@ -255,23 +294,131 @@ function gaugeColor(atRisk: boolean): [number, number, number, number] {
   return atRisk ? [220, 60, 50, 240] : [30, 130, 180, 200];
 }
 
+// Mode-aware operational narrative — pure function, no hooks
+function getModeNarrative(
+  mode: IntelligenceMode,
+  activeRiskCount: number,
+  atRiskGaugeCount: number
+): { headline: string; context: string; drivers: string[]; confidence: string } {
+  switch (mode) {
+    case "live":
+      return activeRiskCount > 0
+        ? {
+            headline: "Operational pressure increasing.",
+            context: `${activeRiskCount} active signal${activeRiskCount === 1 ? "" : "s"} intersecting the Atlantic corridor.`,
+            drivers: [
+              "Coastal hazard signals intersect exposed freight corridors",
+              "Port and facility proximity edges updating from active events",
+              atRiskGaugeCount > 0
+                ? `${atRiskGaugeCount} hydrologic gauge${atRiskGaugeCount === 1 ? "" : "s"} in stressed state`
+                : "Hydrologic monitoring active across regional infrastructure",
+            ],
+            confidence: "Moderate",
+          }
+        : {
+            headline: "Network stable.",
+            context: "No active pressure signals intersecting priority assets.",
+            drivers: [
+              "Movement corridors within normal observation bands",
+              "No events intersecting ports or facilities",
+              "Hydrologic monitoring active — no stressed gauges",
+            ],
+            confidence: "High",
+          };
+    case "flow":
+      return {
+        headline: "Movement corridor view.",
+        context: "Highway, rail, waterway, and ferry routes across NY / NJ / CT.",
+        drivers: [
+          "Port interfaces and facility nodes overlaid",
+          "Route network indexed from OSM statewide extracts",
+          "Cargo flow and chain tracing in development",
+        ],
+        confidence: "High",
+      };
+    case "scenario":
+      return {
+        headline: "Scenario mode active.",
+        context: "Model a disruption and trace its downstream impact.",
+        drivers: [
+          "Risk score overlay active — weighted exposure per asset",
+          "Active alerts and impact edges loaded",
+          "Ask: what happens if a corridor fails?",
+        ],
+        confidence: "Pending query",
+      };
+    case "intelligence":
+      return {
+        headline: "AI analysis mode.",
+        context: "Risk scores and sensor signals cross-referenced.",
+        drivers: [
+          "Weighted risk scores across ports, facilities, and routes",
+          "Stream gauges and NWS alerts spatially joined",
+          "Ask for observations or anomalies",
+        ],
+        confidence: "Moderate",
+      };
+    case "memory":
+      return {
+        headline: "Historical replay mode.",
+        context: "Pattern analysis requires accumulated ingestion history.",
+        drivers: [
+          "Live ingestion pipeline active — history accumulating",
+          "Trend analysis and anomaly detection coming",
+          "Ask about patterns in the current dataset",
+        ],
+        confidence: "Low",
+      };
+  }
+}
+
+const intelligenceModes: Array<{
+  id: IntelligenceMode;
+  label: string;
+  icon: React.ReactNode;
+}> = [
+  { id: "live", label: "Live", icon: <RadioTower size={15} /> },
+  { id: "flow", label: "Flow", icon: <Activity size={15} /> },
+  { id: "scenario", label: "Scenario", icon: <Sparkles size={15} /> },
+  { id: "intelligence", label: "Intel", icon: <Brain size={15} /> },
+  { id: "memory", label: "Memory", icon: <Clock3 size={15} /> },
+];
+
 export function App() {
+  const [mode, setMode] = useState<IntelligenceMode>("live");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [signalsExpanded, setSignalsExpanded] = useState(false);
   const [selectedRiskEventId, setSelectedRiskEventId] = useState<string | null>(null);
   const [selectedFeature, setSelectedFeature] = useState<SelectedFeature>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const [chatToolResult, setChatToolResult] = useState<ToolResult | null>(null);
+  const [syncedAt, setSyncedAt] = useState<Date | null>(null);
+  const [syncAge, setSyncAge] = useState("now");
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  const [visibleLayers, setVisibleLayers] = useState({
-    routes: true,
-    facilities: true,
-    ports: true,
-    alerts: true,
-    riskScores: false,
-    streamGauges: true,
-  });
+  const riskSummary = useRiskSummary();
+  const activeRiskCount = riskSummary.reduce((total, item) => total + item.count, 0);
+
+  // Layer visibility is derived from mode — no manual toggles
+  const visibleLayers = useMemo(() => {
+    const m = MODE_LAYERS[mode];
+    return {
+      routes: m.routes,
+      facilities: m.facilities,
+      ports: m.ports,
+      alerts: m.alerts,
+      riskScores: m.riskScores === "auto" ? activeRiskCount > 0 : m.riskScores,
+      streamGauges: m.streamGauges,
+    };
+  }, [mode, activeRiskCount]);
+
+  // Clear map selection when switching modes
+  useEffect(() => {
+    setSelectedFeature(null);
+    setSelectedRiskEventId(null);
+  }, [mode]);
 
   const ports = useGeoJson("port", visibleLayers.ports);
   const facilities = useGeoJson("facility", visibleLayers.facilities);
@@ -279,16 +426,51 @@ export function App() {
   const streamGauges = useStreamGauges(visibleLayers.streamGauges);
   const riskEvents = useRiskEvents(visibleLayers.alerts);
   const riskImpacts = useRiskImpacts(selectedRiskEventId);
-  const riskScores = useRiskScores(true); // always load so count is accurate
-  const summary = useSummary();
-  const riskSummary = useRiskSummary();
-  const activeRiskCount = riskSummary.reduce((total, item) => total + item.count, 0);
-  const routeCount = summary.find((item) => item.entity_type === "route")?.count ?? 0;
-  const facilityCount = summary.find((item) => item.entity_type === "facility")?.count ?? 0;
-  const portCount = summary.find((item) => item.entity_type === "port")?.count ?? 0;
-  const atRiskGaugeCount = streamGauges.data.features.filter(
-    (f) => f.properties.at_risk
-  ).length;
+  // Always fetch risk scores so the layer can activate as soon as alerts appear
+  const riskScores = useRiskScores(true);
+
+  const atRiskGaugeCount = streamGauges.data.features.filter((f) => f.properties.at_risk).length;
+  const visibleRiskSignals = signalsExpanded
+    ? riskEvents.data.features
+    : riskEvents.data.features.slice(0, 3);
+  const hiddenRiskSignalCount = Math.max(riskEvents.data.features.length - 3, 0);
+
+  const narrative = getModeNarrative(mode, activeRiskCount, atRiskGaugeCount);
+  const narrativeText = [narrative.headline, narrative.context, ...narrative.drivers].join(" ");
+  const narrativeMinHeight = useMemo(() => measureNarrativeHeight(narrativeText), [narrativeText]);
+
+  const modePrompts: Record<IntelligenceMode, string> = {
+    live: "What is changing right now?",
+    flow: "How are goods moving through this network?",
+    scenario: "What happens if a corridor fails?",
+    intelligence: "What should I care about?",
+    memory: "What patterns have we learned?",
+  };
+
+  const isLoading =
+    ports.loading ||
+    facilities.loading ||
+    routes.loading ||
+    streamGauges.loading ||
+    riskEvents.loading ||
+    riskImpacts.loading ||
+    riskScores.loading;
+
+  // Track last sync timestamp
+  useEffect(() => {
+    if (!isLoading) setSyncedAt(new Date());
+  }, [isLoading]);
+
+  useEffect(() => {
+    if (!syncedAt) return;
+    const tick = () => {
+      const secs = Math.floor((Date.now() - syncedAt.getTime()) / 1000);
+      setSyncAge(secs < 60 ? `${secs}s ago` : `${Math.floor(secs / 60)}m ago`);
+    };
+    tick();
+    const id = setInterval(tick, 30_000);
+    return () => clearInterval(id);
+  }, [syncedAt]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView?.({ behavior: "smooth" });
@@ -497,13 +679,18 @@ export function App() {
       visibleLayers.ports ? portLayer : null,
       chatResultLayer,
     ].filter(Boolean);
-  }, [facilities.data, streamGauges.data, ports.data, riskEvents.data, riskImpacts.data, riskScores.data, routes.data, selectedRiskEventId, visibleLayers, chatToolResult]);
-
-  const isLoading =
-    ports.loading || facilities.loading || routes.loading || streamGauges.loading || riskEvents.loading || riskImpacts.loading || riskScores.loading;
-  const setLayerVisibility = (layer: keyof typeof visibleLayers, value: boolean) => {
-    setVisibleLayers((current) => ({ ...current, [layer]: value }));
-  };
+  }, [
+    facilities.data,
+    streamGauges.data,
+    ports.data,
+    riskEvents.data,
+    riskImpacts.data,
+    riskScores.data,
+    routes.data,
+    selectedRiskEventId,
+    visibleLayers,
+    chatToolResult,
+  ]);
 
   const selectedName = selectedFeature
     ? String(selectedFeature.properties.name || selectedFeature.properties.event_type || selectedFeature.properties.entity_type || "Entity")
@@ -523,201 +710,232 @@ export function App() {
           const props = object.properties ?? {};
           return { html: tooltipHtml(props) };
         }}
-        onClick={({ object }) => handleFeatureClick(object as { id?: unknown; properties?: Record<string, unknown> } | null)}
+        onClick={({ object }) =>
+          handleFeatureClick(object as { id?: unknown; properties?: Record<string, unknown> } | null)
+        }
       />
+      <div className="flow-field" aria-hidden />
+      <div className="flow-ribbons" aria-hidden>
+        <span />
+        <span />
+        <span />
+      </div>
 
-      <aside className="panel">
-        <div className="title-row">
-          <MapPinned size={20} aria-hidden />
-          <h1>Open Supply Chain</h1>
+      <aside className={`command-surface${sidebarCollapsed ? " is-collapsed" : ""}`}>
+        <div className="system-row">
+          <div className="identity-lockup">
+            <MapPinned size={20} aria-hidden />
+            <div>
+              <h1>Open Supply Chain</h1>
+              <div className="aoi">NY + NJ + CT live operational model</div>
+            </div>
+          </div>
+          <div className="system-pulse" aria-label="System status">
+            <span className={isLoading ? "is-syncing" : ""} />
+            <strong>{isLoading ? "Syncing" : "Live"}</strong>
+          </div>
+          <button
+            type="button"
+            className="collapse-button"
+            aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            onClick={() => setSidebarCollapsed((c) => !c)}
+          >
+            {sidebarCollapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
+          </button>
         </div>
-        <div className="aoi">NY + NJ + CT AOI</div>
 
-        <section className="layer-list">
-          <LayerCard icon={<Route size={17} />} label="Routes" value={routeCount} active={visibleLayers.routes} onClick={() => setLayerVisibility("routes", !visibleLayers.routes)} />
-          <LayerCard icon={<Warehouse size={17} />} label="Facilities" value={facilityCount} active={visibleLayers.facilities} onClick={() => setLayerVisibility("facilities", !visibleLayers.facilities)} />
-          <LayerCard icon={<Box size={17} />} label="Ports" value={portCount} active={visibleLayers.ports} onClick={() => setLayerVisibility("ports", !visibleLayers.ports)} />
-          <LayerCard icon={<AlertTriangle size={17} />} label="Active Alerts" value={activeRiskCount} active={visibleLayers.alerts} onClick={() => setLayerVisibility("alerts", !visibleLayers.alerts)} />
-          <LayerCard
-            icon={<ShieldAlert size={17} />}
-            label="Risk Scores"
-            value={riskScores.data.features.length}
-            active={visibleLayers.riskScores}
-            onClick={() => setLayerVisibility("riskScores", !visibleLayers.riskScores)}
-          />
-          <LayerCard
-            icon={<Droplets size={17} />}
-            label="Stream Gauges"
-            value={streamGauges.data.features.length}
-            active={visibleLayers.streamGauges}
-            onClick={() => setLayerVisibility("streamGauges", !visibleLayers.streamGauges)}
-            badge={atRiskGaugeCount > 0 ? `${atRiskGaugeCount} at risk` : undefined}
-          />
-        </section>
-
-        {riskEvents.data.features.length > 0 && (
-          <section className="alert-list">
-            <div className="alert-list-label">
-              <AlertTriangle size={13} aria-hidden />
-              <span>Active Alerts</span>
-            </div>
-            {riskEvents.data.features.map((f) => {
-              const p = f.properties;
-              const id = String((f as unknown as { id?: unknown }).id ?? "");
-              const isSelected = selectedRiskEventId === id;
-              return (
-                <button
-                  key={id}
-                  className={`alert-row${isSelected ? " is-selected" : ""}`}
-                  onClick={() => handleFeatureClick(f as { id?: unknown; properties?: Record<string, unknown> })}
-                >
-                  <span className="alert-row-type">{String(p.event_type ?? "")}</span>
-                  <span className={`alert-row-sev alert-row-sev--${String(p.severity ?? "").toLowerCase()}`}>
-                    {String(p.severity ?? "")}
-                  </span>
-                </button>
-              );
-            })}
-          </section>
-        )}
-
-        {selectedFeature && (
-          <section className="impact-summary">
-            <div className="impact-summary-label">
-              {selectedType === "risk_event" ? <AlertTriangle size={13} aria-hidden /> : <MapPinned size={13} aria-hidden />}
-              <span>{titleize(selectedType ?? "entity")}</span>
-              <button
-                className="impact-summary-close"
-                onClick={() => { setSelectedFeature(null); setSelectedRiskEventId(null); }}
-                aria-label="Dismiss"
-              >
-                <X size={12} />
-              </button>
-            </div>
-            <strong>{selectedName}</strong>
-            {Boolean(selectedFeature.properties.subtype) && (
-              <span>{titleize(selectedFeature.properties.subtype)}</span>
-            )}
-            {Boolean(selectedFeature.properties.severity) && (
-              <span>Severity: {String(selectedFeature.properties.severity)}</span>
-            )}
-            {Boolean(selectedFeature.properties.area_desc) && (
-              <span>{String(selectedFeature.properties.area_desc)}</span>
-            )}
-            {selectedFeature.properties.at_risk != null && (
-              <span style={{ color: selectedFeature.properties.at_risk ? "#dc3c32" : "#1e82b4" }}>
-                {selectedFeature.properties.at_risk
-                  ? `⚠ At risk · ${selectedFeature.properties.active_alert_count} active alert(s)`
-                  : "Normal — no active alerts within 5 km"}
-              </span>
-            )}
-            {selectedRiskEventId && (
-              <>
-                <strong>{riskImpacts.data.features.length.toLocaleString()} linked assets</strong>
-                <span>{riskImpacts.loading ? "Loading impact network…" : "Stored risk_impacts edges"}</span>
-              </>
-            )}
-          </section>
-        )}
-
-        <section className="chat-panel">
-          <div className="chat-panel-label">
-            <MessageSquare size={13} aria-hidden />
-            <span>Ask the supply chain</span>
-          </div>
-
-          <div className="chat-messages">
-            {chatMessages.length === 0 && (
-              <div className="chat-empty">
-                Ask about ports, facilities, routes, or weather — e.g. "ports near Newark" or "warehouses within 20km of JFK"
-              </div>
-            )}
-            {chatMessages.map((msg, i) => (
-              <div key={i} className={`chat-bubble chat-bubble--${msg.role}`}>
-                {msg.content}
-              </div>
-            ))}
-            {chatLoading && (
-              <div className="chat-bubble chat-bubble--assistant chat-bubble--thinking">
-                Thinking…
-              </div>
-            )}
-            <div ref={chatEndRef} />
-          </div>
-
-          {chatToolResult && chatToolResult.count > 0 && (
-            <div className="chat-result-badge">
-              {chatToolResult.count.toLocaleString()} results on map · {chatToolResult.tool.replace(/_/g, " ")}
-            </div>
-          )}
-
-          <div className="chat-input-row">
-            <input
-              className="chat-input"
-              type="text"
-              placeholder="Ask about the supply chain…"
-              value={chatInput}
-              onChange={(e) => setChatInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  sendChat();
-                }
-              }}
-              disabled={chatLoading}
-            />
+        <section className="mode-switcher" aria-label="Operational modes">
+          {intelligenceModes.map((item) => (
             <button
-              className="chat-send"
-              onClick={sendChat}
-              disabled={chatLoading || chatInput.trim().length === 0}
-              aria-label="Send"
+              key={item.id}
+              type="button"
+              className={`mode-button mode-button--${item.id}${mode === item.id ? " is-active" : ""}`}
+              aria-pressed={mode === item.id}
+              onClick={() => setMode(item.id)}
             >
-              <Send size={14} />
+              {item.icon}
+              <span>{item.label}</span>
             </button>
-          </div>
+          ))}
         </section>
 
-        <div className="source-row">
-          <Database size={16} aria-hidden />
-          <span>{isLoading ? "Loading canonical layers" : "Serving canonical GeoJSON from FastAPI"}</span>
-        </div>
+        {!sidebarCollapsed && (
+          <>
+            <section
+              className="narrative-brief"
+              aria-label="Operational status"
+              style={narrativeMinHeight > 0 ? { minHeight: narrativeMinHeight + 88 } : undefined}
+            >
+              <div className="narrative-mode-line">
+                <span className={`mode-badge mode-badge--${mode}`}>{mode.toUpperCase()}</span>
+                <span className="narrative-aoi">Atlantic Corridor</span>
+              </div>
+              <strong className="narrative-headline">{narrative.headline}</strong>
+              <p className="narrative-context">{narrative.context}</p>
+              <ul>
+                {narrative.drivers.map((driver) => (
+                  <li key={driver}>{driver}</li>
+                ))}
+              </ul>
+              <div className="confidence-line">
+                <span>Confidence</span>
+                <strong>{narrative.confidence}</strong>
+                {syncedAt && <span className="sync-age">Updated {syncAge}</span>}
+              </div>
+            </section>
+
+            {riskEvents.data.features.length > 0 && (
+              <section className="alert-list">
+                <div className="alert-list-label">
+                  <AlertTriangle size={13} aria-hidden />
+                  <span>Pressure signals</span>
+                </div>
+                {visibleRiskSignals.map((f) => {
+                  const p = f.properties;
+                  const id = String((f as unknown as { id?: unknown }).id ?? "");
+                  const isSelected = selectedRiskEventId === id;
+                  return (
+                    <button
+                      key={id}
+                      className={`alert-row${isSelected ? " is-selected" : ""}`}
+                      onClick={() =>
+                        handleFeatureClick(f as { id?: unknown; properties?: Record<string, unknown> })
+                      }
+                    >
+                      <span className="alert-row-type">{String(p.event_type ?? "")}</span>
+                      <span className={`alert-row-sev alert-row-sev--${String(p.severity ?? "").toLowerCase()}`}>
+                        {String(p.severity ?? "")}
+                      </span>
+                    </button>
+                  );
+                })}
+                {hiddenRiskSignalCount > 0 && (
+                  <button
+                    type="button"
+                    className="signal-reveal"
+                    onClick={() => setSignalsExpanded((e) => !e)}
+                  >
+                    {signalsExpanded
+                      ? "Show fewer signals"
+                      : `View all signals (${riskEvents.data.features.length})`}
+                  </button>
+                )}
+              </section>
+            )}
+
+            {selectedFeature && (
+              <section className="impact-summary">
+                <div className="impact-summary-label">
+                  {selectedType === "risk_event" ? (
+                    <AlertTriangle size={13} aria-hidden />
+                  ) : (
+                    <MapPinned size={13} aria-hidden />
+                  )}
+                  <span>{titleize(selectedType ?? "entity")}</span>
+                  <button
+                    className="impact-summary-close"
+                    onClick={() => {
+                      setSelectedFeature(null);
+                      setSelectedRiskEventId(null);
+                    }}
+                    aria-label="Dismiss"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+                <strong>{selectedName}</strong>
+                {Boolean(selectedFeature.properties.subtype) && (
+                  <span>{titleize(selectedFeature.properties.subtype)}</span>
+                )}
+                {Boolean(selectedFeature.properties.severity) && (
+                  <span>Severity: {String(selectedFeature.properties.severity)}</span>
+                )}
+                {Boolean(selectedFeature.properties.area_desc) && (
+                  <span>{String(selectedFeature.properties.area_desc)}</span>
+                )}
+                {selectedFeature.properties.at_risk != null && (
+                  <span style={{ color: selectedFeature.properties.at_risk ? "#dc3c32" : "#1e82b4" }}>
+                    {selectedFeature.properties.at_risk
+                      ? `⚠ At risk · ${selectedFeature.properties.active_alert_count} active alert(s)`
+                      : "Normal — no active alerts within 5 km"}
+                  </span>
+                )}
+                {selectedRiskEventId && (
+                  <>
+                    <strong>{riskImpacts.data.features.length.toLocaleString()} linked assets</strong>
+                    <span>
+                      {riskImpacts.loading ? "Loading impact network…" : "Stored risk_impacts edges"}
+                    </span>
+                  </>
+                )}
+              </section>
+            )}
+
+            <section className="chat-panel">
+              <div className="chat-panel-label">
+                <MessageSquare size={13} aria-hidden />
+                <span>{modePrompts[mode]}</span>
+              </div>
+
+              <div className="chat-messages">
+                {chatMessages.length === 0 && (
+                  <div className="chat-empty">
+                    Try "Show vulnerabilities in food imports to NYC" or "What happens if Newark
+                    port slows for 48 hours?"
+                  </div>
+                )}
+                {chatMessages.map((msg, i) => (
+                  <div key={i} className={`chat-bubble chat-bubble--${msg.role}`}>
+                    {msg.content}
+                  </div>
+                ))}
+                {chatLoading && (
+                  <div className="chat-bubble chat-bubble--assistant chat-bubble--thinking">
+                    Thinking…
+                  </div>
+                )}
+                <div ref={chatEndRef} />
+              </div>
+
+              {chatToolResult && chatToolResult.count > 0 && (
+                <div className="chat-result-badge">
+                  {chatToolResult.count.toLocaleString()} results on map ·{" "}
+                  {chatToolResult.tool.replace(/_/g, " ")}
+                </div>
+              )}
+
+              <div className="chat-input-row">
+                <input
+                  className="chat-input"
+                  type="text"
+                  placeholder="Ask the network..."
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      sendChat();
+                    }
+                  }}
+                  disabled={chatLoading}
+                />
+                <button
+                  className="chat-send"
+                  onClick={sendChat}
+                  disabled={chatLoading || chatInput.trim().length === 0}
+                  aria-label="Send"
+                >
+                  <Send size={14} />
+                </button>
+              </div>
+            </section>
+          </>
+        )}
       </aside>
 
       <footer>
         Map data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>
       </footer>
     </main>
-  );
-}
-
-function LayerCard({
-  icon,
-  label,
-  value,
-  active,
-  onClick,
-  badge,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: number;
-  active: boolean;
-  onClick: () => void;
-  badge?: string;
-}) {
-  return (
-    <button
-      type="button"
-      className={`layer-card${active ? " is-active" : ""}`}
-      aria-pressed={active}
-      onClick={onClick}
-    >
-      <span className="layer-card-label">
-        {icon}
-        <span>{label}</span>
-        {badge && <span className="layer-card-badge">{badge}</span>}
-      </span>
-      <strong>{value.toLocaleString()}</strong>
-    </button>
   );
 }

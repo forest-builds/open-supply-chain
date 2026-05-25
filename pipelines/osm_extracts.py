@@ -15,6 +15,7 @@ from pipelines.osm import (
     facility_subtype,
     insert_raw_ingestion,
     load_contract,
+    route_subtype,
     upsert_aoi,
     upsert_geo_entities,
     upsert_source,
@@ -200,7 +201,13 @@ class CanonicalExtractHandler(osmium.SimpleHandler):
         self.records.append(
             {
                 "entity_type": entity_type,
-                "subtype": facility_subtype(tags) if entity_type == "facility" else None,
+                "subtype": (
+                    facility_subtype(tags)
+                    if entity_type == "facility"
+                    else route_subtype(tags)
+                    if entity_type == "route"
+                    else None
+                ),
                 "name": tags.get("name") or tags.get("operator") or tags.get("ref"),
                 "description": tags.get("description"),
                 "geometry": geometry,

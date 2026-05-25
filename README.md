@@ -54,9 +54,9 @@ The first area of interest is the NY/NJ/CT region, stored at:
 sources/osm/tri_state_aoi.geojson
 ```
 
-The initial Overpass and extract loads use tighter NYC metro/Newark/Long Island
-Sound bboxes so local pulls stay practical. The canonical AOI and database shape
-are ready to widen as OSM extract coverage expands across NY, NJ, and CT.
+The canonical OSM extract path now covers Connecticut, New Jersey, and New York
+statewide through Geofabrik extracts. Overpass jobs are still useful as small
+probes, but the repeatable path is the extract downloader/loader.
 
 ## Setup
 
@@ -92,13 +92,17 @@ Prefer Geofabrik extracts for repeatable scalable ingestion:
 
 ```bash
 python -m pipelines.osm_extracts list
-python -m pipelines.osm_extracts download --region new_jersey
-python -m pipelines.osm_extracts load \
+python -m pipelines.osm_extracts download \
+  --region connecticut \
   --region new_jersey \
+  --region new_york
+python -m pipelines.osm_extracts load \
+  --region connecticut \
+  --region new_jersey \
+  --region new_york \
   --layer port \
   --layer facility \
-  --layer route \
-  --bbox 40.65,-74.20,40.72,-74.12
+  --layer route
 ```
 
 Load NOAA observation and risk context:
@@ -183,13 +187,13 @@ shape and coverage status.
 
 ## Data Coverage Notes
 
-The current loaded data is intentionally still uneven. Ports cover a wider
-coastal extent than routes and facilities, while routes/facilities are currently
-concentrated around the tighter Port Newark/New Jersey extract bbox. Current
-NOAA/NWS coastal alerts therefore produce port-heavy impacts. This is a source
-coverage signal, not proof that inland routes or facilities are unaffected.
+The current OSM-backed asset layer covers NY/NJ/CT statewide for ports,
+facilities, and freight-relevant route features. NOAA/NWS active alerts are
+still a live, source-dependent feed, so the active `risk_impacts` distribution
+will change as alerts expire and new alerts appear.
 
-Next coverage work: widen OSM extracts across NY/NJ/CT and add inland risk
-sources such as USGS.
+Next coverage work: mature inland risk and sensor context with USGS earthquake,
+water, and hazard feeds, then add flow/economic sources that explain what moves
+through the physical network.
 
 Attribution: map and source data from OpenStreetMap contributors.

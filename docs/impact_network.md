@@ -60,34 +60,40 @@ Stored edge fields:
 After building against the current NOAA/NWS alerts and OSM entities:
 
 ```text
-140 persisted risk impact edges
-92 port intersects
-48 port near
+28,611 persisted risk impact edges
+
+facility: 2,160 intersects, 294 near
+port: 372 intersects, 144 near
+route: 22,602 intersects, 3,039 near
 ```
 
 ## Data Coverage Maturity
 
-The current active coastal alerts only impact port-like assets in the loaded
-data. This is expected, not a failed relationship rule:
+The current active coastal alerts now impact facilities, ports, and routes
+because the OSM asset layer has been widened across statewide Connecticut, New
+Jersey, and New York Geofabrik extracts. The result is still shaped by the live
+risk-event feed:
 
-- Ports cover a wider coastal extent across the current OSM pulls.
-- Facilities and routes are currently concentrated around the tighter
-  Port Newark/New Jersey extract bbox.
-- NOAA/NWS coastal alert polygons are ocean/coast focused, so they naturally
-  intersect marina, ferry terminal, harbor, and port-like assets first.
+- NOAA/NWS coastal alert polygons are ocean/coast focused, so coastal assets and
+  shoreline routes dominate while those alerts are active.
+- USGS earthquake ingestion has started and should be expanded into a broader
+  inland disaster/hazard source.
+- USGS water gauges are stored as monitoring locations, but live readings are
+  not yet part of scoring or event generation.
 
 To mature this layer, widen coverage in two directions:
 
-1. Load larger OSM extracts for routes and facilities across NY, NJ, and CT.
-2. Add inland risk sources such as USGS earthquakes and hazards, which should
-   exercise facility and route impacts more naturally.
+1. Add inland risk sources such as USGS earthquakes, floods, and hazards, which
+   should exercise facility and route impacts more naturally.
+2. Add flow/economic sources that explain what moves through impacted physical
+   assets.
 
-Until then, port-heavy impact results should be read as a data coverage signal,
-not as proof that routes/facilities are unaffected in the real world.
+Impact results should be read as a source-and-AOI maturity signal, not as proof
+that any unlinked real-world asset is unaffected.
 
 ## Next
 
 1. Verify alert-click highlighting in browser with live PostGIS.
-2. Add USGS disaster events into `risk_events`.
+2. Expand USGS disaster/hazard events in `risk_events`.
 3. Re-run `python -m pipelines.impact_network` after each risk/entity ingestion.
 4. Wrap the governed `/tools/*` functions for MCP/AI orchestration.

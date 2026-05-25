@@ -176,6 +176,25 @@ def test_extract_handler_keeps_layer_filtered_records() -> None:
     assert handler.records[0]["subtype"] == "storage_tank"
 
 
+def test_extract_handler_sets_route_subtype() -> None:
+    handler = CanonicalExtractHandler(
+        region_key="test_region",
+        layers={"route"},
+        bbox=None,
+        limit=None,
+    )
+
+    handler.add_record(
+        osm_type="way",
+        osm_id=2,
+        tags={"railway": "rail", "name": "Freight Rail"},
+        geometry={"type": "LineString", "coordinates": [[-74.0, 40.7], [-73.9, 40.8]]},
+        entity_type="route",
+    )
+
+    assert handler.records[0]["subtype"] == "rail"
+
+
 def test_tags_dict_and_handler_node_way_branches() -> None:
     class Tag:
         def __init__(self, k, v):

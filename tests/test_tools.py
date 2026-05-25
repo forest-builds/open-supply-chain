@@ -13,6 +13,7 @@ from api.tools import (
     routes_near,
     routes_impacted_by_alert,
     search_entities,
+    stream_gauges_near,
     summarize_asset_exposure,
     weather_stations_near,
 )
@@ -38,12 +39,13 @@ def no_db(monkeypatch):
 
 def test_catalog_lists_all_tools():
     result = catalog()
-    assert result["tool_count"] == 10
+    assert result["tool_count"] == 11
     names = {t["name"] for t in result["tools"]}
     assert names == {
         "ports_near",
         "facilities_near",
         "weather_stations_near",
+        "stream_gauges_near",
         "routes_near",
         "entities_in_bbox",
         "search_entities",
@@ -83,6 +85,13 @@ def test_weather_stations_near_shape_without_db(no_db):
     assert result["tool"] == "weather_stations_near"
     assert result["count"] == 0
     assert "NOAA" in result["explanation"]
+
+
+def test_stream_gauges_near_shape_without_db(no_db):
+    result = stream_gauges_near(lat=40.7, lon=-74.0, radius_km=100)
+    assert result["tool"] == "stream_gauges_near"
+    assert result["count"] == 0
+    assert "USGS" in result["explanation"]
 
 
 def test_routes_near_shape_without_db(no_db):
@@ -167,6 +176,7 @@ def test_all_tools_return_required_keys(no_db):
         ports_near(lat=40.7, lon=-74.0),
         facilities_near(lat=40.7, lon=-74.0),
         weather_stations_near(lat=40.7, lon=-74.0),
+        stream_gauges_near(lat=40.7, lon=-74.0),
         routes_near(lat=40.7, lon=-74.0),
         entities_in_bbox(min_lon=-74.5, min_lat=40.5, max_lon=-73.5, max_lat=41.0),
         search_entities(q="test"),

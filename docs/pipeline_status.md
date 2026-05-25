@@ -33,8 +33,10 @@ NOAA/NWS active alerts
 - Manifest-driven Geofabrik extract downloader for CT/NJ/NY.
 - MD5 verification for downloaded `.osm.pbf` extracts.
 - Local `.osm.pbf` parser for ports, facilities, and routes.
+- Statewide Geofabrik extract load for Connecticut, New Jersey, and New York.
 - Raw payload preservation for external source pulls.
 - Canonical `geo_entities` normalization.
+- Route subtype derivation for `highway`, `rail`, `waterway`, and `ferry`.
 - Facility subtype derivation for `warehouse`, `storage_tank`, `logistics`, and
   `industrial_site`.
 - NOAA CDO station ingestion as optional observation context.
@@ -53,29 +55,34 @@ NOAA/NWS active alerts
 Latest integrity check:
 
 ```text
-sources: 4
-raw_ingestions: 6
-geo_entities: 4,080
-risk_events: 5
-risk_impacts: 140
+sources: 6
+raw_ingestions: 10
+geo_entities: 135,849
+risk_events: 6
+risk_impacts: 28,611
 entity_relationships: 0
 ```
 
 Entity breakdown:
 
 ```text
-facility: 288
+facility: 14,460
 location/weather_station: 1,910
-port: 230
-route: 1,652
+location/usgs_water: 742
+port: 1,086
+route: 117,651
 ```
 
 Risk/impact breakdown:
 
 ```text
-High Surf Advisory / Minor: 2
-Rip Current Statement / Moderate: 3
-risk_impacts: 92 port intersects, 48 port near
+NOAA/NWS High Surf Advisory / Minor: 2
+NOAA/NWS Rip Current Statement / Moderate: 3
+USGS earthquake / Minor: 1
+
+facility: 2,160 intersects, 294 near
+port: 372 intersects, 144 near
+route: 22,602 intersects, 3,039 near
 ```
 
 ## Test Coverage
@@ -85,8 +92,8 @@ Python coverage is gated at 90% in `pyproject.toml`.
 Latest local run:
 
 ```text
-103 passed
-TOTAL coverage: 92.19%
+118 passed
+TOTAL coverage: 91.51%
 Frontend: 3 Vitest interaction tests passed
 Build: Vite build passed with deck.gl bundle-size warning
 ```
@@ -99,6 +106,8 @@ Covered:
   parser branches, load dispatch, and status reporting.
 - NOAA station and alert normalization, paged fetch behavior, zone geometry
   resolution, raw insertion helpers, DB helper calls, and CLI dispatch.
+- USGS earthquake and water-gauge fetch parameterization, parsing,
+  normalization, DB helper calls, dry-run behavior, and CLI dispatch.
 - Impact-network source registration and bounded spatial rule.
 - API fallback responses, CORS/preflight middleware, favicon route, risk events,
   risk impacts, risk scores, sources, and tools.
@@ -117,19 +126,20 @@ Not covered yet:
 
 ## Data Coverage Notes
 
-- Current ports cover a wider coastal area than routes/facilities.
-- Current routes and facilities are concentrated around the tighter Port
-  Newark/New Jersey extract bbox.
-- Current NOAA/NWS alerts are coastal, so persisted impact edges are port-heavy.
-- This is a known AOI/source maturity issue. Wider OSM extracts and inland risk
-  sources such as USGS should produce more route and facility impacts.
+- Current OSM ports, facilities, and routes are loaded from statewide
+  Connecticut, New Jersey, and New York Geofabrik extracts.
+- Current NOAA/NWS alerts are coastal, so persisted impact edges are still
+  shaped by the active alert feed.
+- USGS water gauges are present as monitoring locations; live readings are not
+  yet ingested.
+- USGS earthquake ingestion has started and should be expanded into the broader
+  inland disaster/hazard layer.
 
 ## Next Pipeline Steps
 
 1. Verify the impact highlight/risk-score layers in-browser with real WebGL.
-2. Widen OSM extract coverage for routes and facilities across NY/NJ/CT.
-3. Add USGS disasters as the next `risk_events` source.
-4. Rebuild `risk_impacts` after each risk/entity ingestion.
-5. Add MCP wrappers around the governed `/tools/*` surface.
-6. Add `ingestion_id` provenance directly on `geo_entities`.
-7. Add UN Comtrade/Comtrade Plus as product-country flow context.
+2. Add USGS disasters/hazards as the next mature `risk_events` source.
+3. Rebuild `risk_impacts` after each risk/entity ingestion.
+4. Add MCP wrappers around the governed `/tools/*` surface.
+5. Add `ingestion_id` provenance directly on `geo_entities`.
+6. Add UN Comtrade/Comtrade Plus as product-country flow context.

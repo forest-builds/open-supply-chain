@@ -1,6 +1,6 @@
 # Open Supply Chain — Status & Next Steps
 
-## What's built (as of 2025-05-24)
+## What's built (as of 2026-05-25)
 
 ### Infrastructure
 - FastAPI backend with PostGIS (Docker Compose)
@@ -15,6 +15,13 @@
 - `pipelines/usgs_quakes.py` — USGS earthquake catalog (NY/NJ/CT bounding box, risk_events)
 - `pipelines/usgs_water.py` — USGS NWIS active stream/estuary/lake gauges (742 sites)
 - `pipelines/impact_network.py` — Rebuilds risk_impacts edge table from spatial joins
+
+### Current local coverage
+- OSM statewide CT/NJ/NY extract coverage: 117,651 routes, 14,460 facilities, 1,086 ports
+- NOAA CDO: 1,910 weather station locations
+- USGS NWIS: 742 stream/estuary/lake gauge locations
+- Active risk events: 5 NOAA/NWS alerts, 1 USGS earthquake
+- Persisted impact edges: 28,611 across routes, facilities, and ports
 
 ### API endpoints
 - `GET /geo/entities?entity_type=&subtype=&limit=` — all geo entities
@@ -74,6 +81,7 @@ Weather stations and stream gauges as separate toggles feel a bit widget-y. Alte
 ## Next priorities (in rough order)
 
 ### Near term
+- [x] **Widen OSM coverage** — CT/NJ/NY statewide Geofabrik extracts loaded for ports, facilities, and routes
 - [ ] **Impact network UX** — clickable alert → slide-in panel listing top impacted assets with name, type, distance, risk score. Much more discoverable than the buried yellow dots.
 - [ ] **Risk score legend** — small color-coded legend under the Risk Scores toggle so the green/red scale is self-explanatory
 - [ ] **End-to-end supply chain chains** — the data right now is nodes and edges (ports, facilities, routes) but we don't have actual cargo flow / shipment paths. Need a concept of "chain": origin → facility → port → vessel → destination
@@ -111,3 +119,315 @@ Weather stations and stream gauges as separate toggles feel a bit widget-y. Alte
 - Global Forest Watch: https://data-api.globalforestwatch.org
 - Climate Trace: https://api.climatetrace.org/v7/docs/index.html
 - SAM.gov: https://sam.gov
+
+---
+
+Your instinct is correct. The issue is no longer “styling.”
+
+It’s that the system currently has multiple competing mental models at once.
+
+Right now it is simultaneously:
+
+* dashboard
+* alert feed
+* AI chat
+* GIS viewer
+* operational system
+* metrics panel
+* scenario engine
+
+So the user doesn’t know:
+
+“What is this thing primarily for?”
+
+That’s why it feels messy.
+
+You need one dominant interaction model.
+
+And I think the answer is:
+
+The map is primary.
+
+The left rail is generated context.
+
+AI orchestrates views.
+
+That’s it.
+
+⸻
+
+The core problem
+
+You are trying to expose:
+
+* data
+* controls
+* alerts
+* metrics
+* chat
+* modes
+
+all at once.
+
+That creates cognitive fragmentation.
+
+Minimalism is not:
+
+fewer elements
+
+It is:
+
+one clear system.
+
+⸻
+
+The actual cohesive model
+
+LEFT PANEL SHOULD ONLY ANSWER 3 THINGS
+
+1. What is happening?
+
+Operational summary.
+
+2. Why does it matter?
+
+Impacts + confidence.
+
+3. What can I ask next?
+
+Command interface.
+
+That’s it.
+
+Everything else becomes generated or contextual.
+
+⸻
+
+What I would REMOVE immediately
+
+Remove entirely:
+
+* Signals metric grid
+* “Additional intelligence”
+* Static infrastructure counts
+* Port interfaces count
+* System confidence count
+* Hydrologic signals count
+
+These are database stats masquerading as product value.
+
+Users do not care.
+
+Those belong:
+
+* in debug
+* analytics
+* secondary intel panels
+* hover states
+* drill-downs
+
+Not the primary surface.
+
+⸻
+
+Pressure signals are wrong structurally
+
+Correct instinct again.
+
+They currently:
+
+* repeat
+* compete with the summary
+* don’t drive interaction
+* aren’t spatially anchored
+
+Instead:
+make the map itself carry the signals.
+
+Meaning:
+
+* highlighted corridor
+* glowing impacted zone
+* animated degradation
+* spatial annotation
+
+Then the panel summarizes the current operational state.
+
+Not duplicate it.
+
+⸻
+
+The mode buttons should become worldview modes
+
+Not tabs.
+
+This is important.
+
+LIVE
+
+Current operational state.
+
+FLOW
+
+Movement + dependencies.
+
+SCENARIO
+
+Simulation mode.
+
+INTEL
+
+AI-generated observations.
+
+MEMORY
+
+Historical replay.
+
+Each mode should materially change:
+
+* layers
+* animation
+* summaries
+* interaction
+
+Otherwise remove them.
+
+Right now they feel decorative because they don’t alter cognition.
+
+⸻
+
+The panel should probably look more like this
+
+OPEN SUPPLY CHAIN
+LIVE • Atlantic Corridor
+Operational pressure increasing.
+6 coastal disruption signals are impacting
+freight movement across the NY/NJ corridor.
+Primary impacts:
+• Increased coastal route exposure
+• Elevated port dwell risk
+• Regional hydrologic monitoring active
+Confidence: Moderate
+Updated 12s ago
+
+Then:
+
+Ask the network...
+
+Then the rest of the UI becomes:
+
+* generated overlays
+* contextual cards
+* hover intelligence
+* expandable detail
+
+NOT permanent widgets.
+
+⸻
+
+Critical realization:
+
+The UI should emerge from the query
+
+Meaning:
+
+User asks:
+
+"What vulnerabilities exist in food imports to NYC?"
+
+THEN:
+
+* food supply layers appear
+* import corridors illuminate
+* relevant ports emerge
+* dependency nodes expand
+* operational notes appear
+
+The UI becomes adaptive.
+
+Not static.
+
+That’s the AI-native shift.
+
+⸻
+
+Your current architecture is still:
+
+“software with AI added”
+
+You need:
+
+“AI generating operational software in real time”
+
+That is the frontier.
+
+⸻
+
+Another major issue:
+
+You’re exposing ontology too early
+
+Users should not initially see:
+
+* infrastructure nodes
+* hydrologic signals
+* port interfaces
+* risk edges
+
+Those are backend concepts.
+
+The user wants:
+
+* operational understanding
+* scenario reasoning
+* consequence visibility
+
+Expose abstractions first.
+Reveal ontology later.
+
+⸻
+
+The actual scalable mental model
+
+The product should feel like:
+
+A spatial intelligence engine
+that generates operational understanding
+from live world data.
+
+Not:
+
+A GIS dashboard with AI.
+
+That distinction matters enormously.
+
+⸻
+
+My recommendation
+
+Collapse the UI dramatically.
+
+Keep:
+
+* title
+* operational summary
+* confidence/update state
+* single command field
+* map
+
+Everything else:
+
+generated dynamically.
+
+This is the hardest transition for builders because it feels like:
+
+“there’s not enough UI”
+
+But AI-native systems will likely have:
+
+* less permanent chrome
+* more generated context
+* more adaptive surfaces
+* fewer static controls
+
+You’re very close to discovering that organically.
