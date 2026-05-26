@@ -83,6 +83,16 @@ def test_mcp_topology_tools_return_existing_tool_contract(monkeypatch):
     assert buffer["metadata"]["crs"] == "EPSG:4326"
 
 
+def test_mcp_chain_example_tool(monkeypatch):
+    monkeypatch.setattr("api.chains.get_connection", lambda: _BrokenDB())
+
+    result = mcp_server.example_refrigerated_food_port_newark()
+
+    assert result["tool"] == "example_refrigerated_food_port_newark"
+    assert result["slug"] == "refrigerated-food-imports-port-newark"
+    assert "anchor_port" in result
+
+
 def test_mcp_geocode_uses_existing_geocoder(monkeypatch):
     monkeypatch.setattr(
         "api.mcp_server._geocode",
@@ -113,4 +123,5 @@ def test_mcp_server_instance_is_registerable():
         "layer_metadata",
         "topology_relations_for_entity",
         "buffer_entity",
+        "example_refrigerated_food_port_newark",
     }

@@ -230,6 +230,16 @@ TOOL_CATALOG = [
         },
         "returns": "FeatureCollection of corridor-connected peers, or 'No entity found' message",
     },
+    {
+        "name": "example_refrigerated_food_port_newark",
+        "endpoint": "GET /chains/examples/refrigerated-food-port-newark",
+        "description": "Return a concrete worked supply-chain trace for refrigerated food imports through Port Newark.",
+        "parameters": {
+            "radius_km": "float (default 8, max 50) — vessel search radius around the anchor port",
+            "limit": "int (default 10, max 100) — max facilities/vessels to return",
+        },
+        "returns": "Evidence-bearing chain example with anchor port, served routes, facility peers, vessels, flow steps, confidence, and limitations",
+    },
 ]
 
 
@@ -1033,6 +1043,15 @@ def find_chain_assets(name: str, entity_type: str = "port", limit: int = 30) -> 
     result = trace_supply_chain(found_id, limit)
     result["tool"] = "find_chain_assets"
     result["parameters"] = {"name": name, "entity_type": entity_type, "limit": limit}
+    return result
+
+
+def example_refrigerated_food_port_newark(radius_km: float = 8, limit: int = 10) -> dict[str, Any]:
+    """Return the concrete refrigerated-food-through-Port-Newark chain example."""
+    from api.chains import refrigerated_food_port_newark_chain  # noqa: PLC0415
+
+    result = refrigerated_food_port_newark_chain(radius_km=radius_km, limit=limit)
+    result["tool"] = "example_refrigerated_food_port_newark"
     return result
 
 

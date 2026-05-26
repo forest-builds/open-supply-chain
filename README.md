@@ -197,6 +197,7 @@ GET /risk/summary
 GET /risk/events/{event_id}/impacts
 GET /risk/impacts/summary
 GET /risk/scores
+GET /chains/examples/refrigerated-food-port-newark
 GET /tools/catalog
 GET /tools/search
 GET /tools/assets-impacted-by-event

@@ -251,5 +251,20 @@ def buffer_entity(entity_id: str, distance_m: float = 1000) -> dict[str, Any]:
     return spatial_tools.buffer_entity(entity_id=entity_id, distance_m=distance_m)
 
 
+@mcp.tool(
+    name="example_refrigerated_food_port_newark",
+    description=(
+        "Return a concrete worked supply-chain trace for refrigerated food imports "
+        "through Port Newark: observed vessels, anchor port, served routes, and "
+        "nearby cold/logistics facility peers."
+    ),
+    tags={"supply-chain", "example", "ports", "vessels"},
+    annotations={"readOnlyHint": True},
+)
+def example_refrigerated_food_port_newark(radius_km: float = 8, limit: int = 10) -> dict[str, Any]:
+    """Return the Port Newark refrigerated-food chain example."""
+    return spatial_tools.example_refrigerated_food_port_newark(radius_km=radius_km, limit=limit)
+
+
 if __name__ == "__main__":
     mcp.run()
