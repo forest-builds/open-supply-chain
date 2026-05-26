@@ -171,7 +171,7 @@ def _ingest_epa() -> None:
 
         run(dry_run=False)
     except Exception:
-        logger.exception("EPA ECHO ingestion failed")
+        logger.exception("EPA TRI ingestion failed")
 
 
 def _ingest_eia() -> None:
@@ -214,12 +214,12 @@ def ingest_gdacs(background_tasks: BackgroundTasks) -> dict[str, Any]:
 
 @admin_router.post("/ingest/epa")
 def ingest_epa(background_tasks: BackgroundTasks) -> dict[str, Any]:
-    """Fetch EPA ECHO hazmat (RCRA) and Superfund (CERCLA) facility locations for NY/NJ/CT."""
+    """Fetch EPA Envirofacts TRI facility locations for NY/NJ/CT."""
     background_tasks.add_task(_ingest_epa)
     return {
         "status": "accepted",
         "pipeline": "epa",
-        "message": "EPA ECHO facility ingestion started in background.",
+        "message": "EPA Envirofacts TRI facility ingestion started in background.",
     }
 
 

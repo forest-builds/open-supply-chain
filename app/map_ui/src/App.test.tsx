@@ -43,9 +43,10 @@ vi.mock("@deck.gl/geo-layers", () => ({
 
 const emptyCollection = { type: "FeatureCollection", features: [] };
 
-function expectLayerValue(label: string, value: string) {
-  const layerButton = screen.getByRole("button", { name: new RegExp(`${label}\\s+${value}`) });
-  expect(within(layerButton).getByText(value)).toBeInTheDocument();
+async function waitForLiveStatus() {
+  await waitFor(() =>
+    expect(within(screen.getByLabelText("System status")).getByText("Live")).toBeInTheDocument()
+  );
 }
 
 describe("App", () => {
@@ -122,32 +123,26 @@ describe("App", () => {
     render(<App />);
 
     expect(screen.getByText("Open Supply Chain")).toBeInTheDocument();
-    expect(screen.getByText("Synchronizing operational model")).toBeInTheDocument();
+    expect(within(screen.getByLabelText("System status")).getByText("Syncing")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Ask the network...")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Scenario/ })).toBeInTheDocument();
 
-    await waitFor(() =>
-      expect(screen.getByText("Model synchronized from governed spatial tools")).toBeInTheDocument()
-    );
+    await waitForLiveStatus();
 
-    expectLayerValue("Infrastructure nodes", "3");
-    expectLayerValue("Movement corridors", "2");
-    expectLayerValue("Operational pressure", "5");
-    expect(screen.getByRole("button", { name: /Additional intelligence\s+Show/ })).toBeInTheDocument();
-    expect(screen.getByText("Operational pressure increasing along the Atlantic corridor")).toBeInTheDocument();
-    expect(screen.getByText("5 live pressure signals are shaping the current view.")).toBeInTheDocument();
+    expect(screen.getByText("Operational pressure increasing.")).toBeInTheDocument();
+    expect(screen.getByText("5 active signals intersecting the Atlantic corridor.")).toBeInTheDocument();
+    expect(screen.getByText("Hydrologic monitoring active across regional infrastructure")).toBeInTheDocument();
     expect(screen.getByText("Rip Current Statement")).toBeInTheDocument();
     expect(screen.queryByText("Coastal Flood Warning 5")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "View all signals (5)" })).toBeInTheDocument();
     expect(screen.getByText("Confidence")).toBeInTheDocument();
     expect(screen.getAllByText("Moderate").length).toBeGreaterThan(0);
-    expect(screen.getByTestId("deckgl")).toHaveAttribute("data-layer-count", "6");
+    expect(screen.getByTestId("deckgl")).toHaveAttribute("data-layer-count", "7");
     expect(fetch).toHaveBeenCalledWith("http://localhost:8000/geo/entities?entity_type=port&limit=25000");
     expect(fetch).toHaveBeenCalledWith("http://localhost:8000/geo/entities?entity_type=facility&limit=25000");
     expect(fetch).toHaveBeenCalledWith("http://localhost:8000/geo/entities?entity_type=route&limit=25000");
     expect(fetch).toHaveBeenCalledWith("http://localhost:8000/risk/events?limit=1000");
     expect(fetch).toHaveBeenCalledWith("http://localhost:8000/geo/stream-gauges");
-    expect(fetch).toHaveBeenCalledWith("http://localhost:8000/geo/summary");
   });
 
   it("reveals all pressure signals on demand", async () => {
@@ -163,31 +158,31 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "Show fewer signals" })).toBeInTheDocument();
   });
 
-  it("toggles hydrologic signals from its signal control", async () => {
+  it("switches layer sets by operational mode", async () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await waitFor(() =>
-      expect(screen.getByText("Model synchronized from governed spatial tools")).toBeInTheDocument()
-    );
+    await waitForLiveStatus();
 
-    await user.click(screen.getByRole("button", { name: /Additional intelligence\s+Show/ }));
-    await user.click(screen.getByRole("button", { name: /Hydrologic signals\s+0/ }));
+    await user.click(screen.getByRole("button", { name: "Flow" }));
 
-    expect(screen.getByTestId("deckgl")).toHaveAttribute("data-layer-count", "5");
+    expect(screen.getByText("Movement corridor view.")).toBeInTheDocument();
+    expect(screen.getByTestId("deckgl")).toHaveAttribute("data-layer-count", "4");
+
+    await user.click(screen.getByRole("button", { name: "Intel" }));
+
+    expect(screen.getByText("AI analysis mode.")).toBeInTheDocument();
+    expect(screen.getByTestId("deckgl")).toHaveAttribute("data-layer-count", "6");
   });
 
   it("collapses the command surface into a mode rail", async () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await waitFor(() =>
-      expect(screen.getByText("Model synchronized from governed spatial tools")).toBeInTheDocument()
-    );
+    await waitForLiveStatus();
 
     await user.click(screen.getByRole("button", { name: "Collapse sidebar" }));
 
-    expect(screen.queryByText("Model synchronized from governed spatial tools")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Expand sidebar" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Live/ })).toBeInTheDocument();
   });
@@ -196,14 +191,12 @@ describe("App", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await waitFor(() =>
-      expect(screen.getByText("Model synchronized from governed spatial tools")).toBeInTheDocument()
-    );
+    await waitForLiveStatus();
 
     await user.click(screen.getByTestId("deckgl"));
 
     await waitFor(() => expect(screen.getByText("1 linked assets")).toBeInTheDocument());
     expect(fetch).toHaveBeenCalledWith("http://localhost:8000/risk/events/alert-1/impacts?limit=5000");
-    expect(screen.getByTestId("deckgl")).toHaveAttribute("data-layer-count", "7");
+    expect(screen.getByTestId("deckgl")).toHaveAttribute("data-layer-count", "8");
   });
 });

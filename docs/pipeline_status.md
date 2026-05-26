@@ -23,6 +23,12 @@ NOAA/NWS active alerts
   -> risk_impacts derived against core geo_entities
   -> FastAPI impact endpoints + deterministic tools
   -> deck.gl alert click/highlight + risk-score layer
+
+GDACS, EPA TRI, EIA, USASpending, and AIS
+  -> source-specific live APIs
+  -> risk_events or geo_entities
+  -> admin-triggered ingestion endpoints
+  -> dry-run smoke coverage and normalized DB helpers
 ```
 
 ## Implemented
@@ -41,6 +47,15 @@ NOAA/NWS active alerts
   `industrial_site`.
 - NOAA CDO station ingestion as optional observation context.
 - NOAA/NWS active alert ingestion into `risk_events`.
+- GDACS live global disaster ingestion into `risk_events`.
+- EPA Envirofacts TRI ingestion into `geo_entities` as active industrial
+  facilities.
+- EIA Open Data v2 power plant ingestion into `geo_entities`, with graceful
+  skip when `EIA_API_KEY` is missing.
+- USASpending.gov logistics contractor ingestion into `geo_entities`, using
+  place-of-performance geocoding with state centroid fallback.
+- AISHub vessel feed ingestion into `geo_entities`, with graceful skip when
+  `AIS_API_KEY` is missing.
 - Persisted `risk_impacts` edges from active risk events to ports, facilities,
   and routes.
 - Risk score endpoint derived from active impact edges.
@@ -92,9 +107,9 @@ Python coverage is gated at 90% in `pyproject.toml`.
 Latest local run:
 
 ```text
-118 passed
-TOTAL coverage: 91.51%
-Frontend: 3 Vitest interaction tests passed
+168 passed
+TOTAL coverage: 91.25%
+Frontend: 5 Vitest interaction tests passed
 Build: Vite build passed with deck.gl bundle-size warning
 ```
 
@@ -108,6 +123,8 @@ Covered:
   resolution, raw insertion helpers, DB helper calls, and CLI dispatch.
 - USGS earthquake and water-gauge fetch parameterization, parsing,
   normalization, DB helper calls, dry-run behavior, and CLI dispatch.
+- GDACS, EPA TRI, EIA, USASpending, and AIS source contracts, normalization,
+  DB helper calls, dry-run behavior, and admin ingestion scheduling.
 - Impact-network source registration and bounded spatial rule.
 - API fallback responses, CORS/preflight middleware, favicon route, risk events,
   risk impacts, risk scores, sources, and tools.

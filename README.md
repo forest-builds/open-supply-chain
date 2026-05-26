@@ -207,6 +207,11 @@ POST /tools/chat
 POST /admin/ingest/noaa-alerts
 POST /admin/ingest/noaa-stations
 POST /admin/ingest/impact-network
+POST /admin/ingest/gdacs
+POST /admin/ingest/epa
+POST /admin/ingest/eia
+POST /admin/ingest/usaspending
+POST /admin/ingest/ais
 ```
 
 ## Scalability Rules

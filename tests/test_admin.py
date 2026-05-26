@@ -182,7 +182,7 @@ def test_background_new_ingestions_log_failure(monkeypatch, caplog) -> None:
     assert "USGS earthquake ingestion failed" in caplog.text
     assert "USGS water gauge ingestion failed" in caplog.text
     assert "GDACS ingestion failed" in caplog.text
-    assert "EPA ECHO ingestion failed" in caplog.text
+    assert "EPA TRI ingestion failed" in caplog.text
     assert "EIA ingestion failed" in caplog.text
     assert "USASpending ingestion failed" in caplog.text
     assert "AIS vessel ingestion failed" in caplog.text
