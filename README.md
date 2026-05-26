@@ -11,9 +11,16 @@ The current vertical slice uses:
 - OpenStreetMap for base supply-chain geography: ports, facilities, routes
 - NOAA CDO for optional weather station observation context
 - NOAA/NWS active alerts for risk events
-- A persisted `risk_impacts` edge table for alert-to-asset exposure
+- GDACS for global disaster events (hurricanes, floods, volcanoes, earthquakes)
+- EPA Envirofacts TRI for active industrial/chemical facility locations
+- EIA Open Data for power plant and energy facility locations
+- USASpending.gov for federal logistics/freight contractor locations
+- AISHub for live vessel position tracking near ports
+- USGS for earthquake events and stream/water gauge monitoring sites
+- A persisted `risk_impacts` edge table for event-to-asset exposure
 - Postgres + PostGIS as the system of record
 - FastAPI for canonical GeoJSON, tools, chat, and admin endpoints
+- Claude Sonnet with multi-hop tool chaining for AI-assisted risk reasoning
 - deck.gl for the map-first UI
 
 ## Project Shape
@@ -22,18 +29,28 @@ The current vertical slice uses:
 /sources
   /osm                 OpenStreetMap contracts, AOI, queries, extract manifest
   /noaa                NOAA contracts and raw payloads
+  /gdacs               GDACS global disaster event contract
+  /epa                 EPA Envirofacts TRI facility contract
+  /eia                 EIA energy facility contract
+  /usaspending         USASpending federal contractor contract
+  /ais                 AISHub vessel feed contract
 /db
   schema.sql           PostGIS schema
 /pipelines
   osm.py               Overpass probe ingestion
   osm_extracts.py      Geofabrik extract ingestion
   noaa.py              NOAA stations and NWS alert ingestion
+  gdacs.py             GDACS global disaster events → risk_events
+  epa.py               EPA TRI industrial facilities → geo_entities
+  eia.py               EIA power plants → geo_entities
+  usaspending.py       Federal logistics contractors → geo_entities
+  ais.py               Live vessel positions → geo_entities
   impact_network.py    Build persisted risk_impacts edges
 /api
   main.py              FastAPI app
   routes.py            GeoJSON/risk/source endpoints
-  tools.py             Deterministic spatial tools
-  chat.py              LLM-backed tool orchestration endpoint
+  tools.py             Deterministic spatial tools (22 tools)
+  chat.py              Claude Sonnet multi-hop reasoning endpoint
   mcp_server.py        FastMCP server over governed tools
   admin.py             Background ingestion triggers
 /app
@@ -111,10 +128,30 @@ Load NOAA observation and risk context:
 ```bash
 python -m pipelines.noaa --dataset stations
 python -m pipelines.noaa --dataset alerts
+```
+
+Load additional data sources (no API key required):
+
+```bash
+python -m pipelines.gdacs          # GDACS global disasters → risk_events
+python -m pipelines.epa            # EPA TRI industrial facilities → geo_entities
+python -m pipelines.usaspending    # Federal freight contractors → geo_entities
+```
+
+Load API-key-gated sources (gracefully skip if key is missing):
+
+```bash
+EIA_API_KEY=your-key python -m pipelines.eia     # EIA power plants
+AIS_API_KEY=your-key python -m pipelines.ais     # Live vessel positions
+```
+
+Rebuild the impact network after any new data load:
+
+```bash
 python -m pipelines.impact_network
 ```
 
-For no-database smoke tests, use `--dry-run` on OSM/NOAA pipeline commands.
+For no-database smoke tests, use `--dry-run` on any pipeline command.
 
 Start the API:
 
@@ -200,10 +237,20 @@ GET /risk/scores
 GET /chains/examples/refrigerated-food-port-newark
 GET /tools/catalog
 GET /tools/search
+GET /tools/ports-near
+GET /tools/facilities-near
+GET /tools/routes-near
+GET /tools/stream-gauges-near
+GET /tools/weather-stations-near
+GET /tools/entities-in-bbox
 GET /tools/assets-impacted-by-event
 GET /tools/risk-events-near-asset
 GET /tools/routes-impacted-by-alert
 GET /tools/summarize-asset-exposure
+GET /tools/topology-relations-for-entity
+GET /tools/buffer-entity
+GET /tools/layer-metadata
+GET /tools/gis-metadata
 POST /tools/chat
 POST /admin/ingest/noaa-alerts
 POST /admin/ingest/noaa-stations
@@ -228,15 +275,38 @@ POST /admin/ingest/ais
 See [docs/pipeline_status.md](docs/pipeline_status.md) for the current pipeline
 shape and coverage status.
 
+## AI Reasoning
+
+The `/tools/chat` endpoint uses Claude Sonnet with multi-hop tool chaining.
+The model receives actual entity names, IDs, distances, severity levels, and
+event headlines from each tool call — enabling it to chain:
+
+```
+geocode → search_entities → risk_events_near_asset → summarize_asset_exposure
+```
+
+or:
+
+```
+geocode → risk_events_near → assets_impacted_by_event
+```
+
+Six risk-reasoning tools are exposed to the model: `search_entities`,
+`risk_events_near_asset`, `risk_events_near`, `assets_impacted_by_event`,
+`summarize_asset_exposure`, and `trace_supply_chain`. Results from all tool
+rounds are merged into a single FeatureCollection for the map overlay.
+
 ## Data Coverage Notes
 
-The current OSM-backed asset layer covers NY/NJ/CT statewide for ports,
-facilities, and freight-relevant route features. NOAA/NWS active alerts are
-still a live, source-dependent feed, so the active `risk_impacts` distribution
-will change as alerts expire and new alerts appear.
+The current asset layer covers NY/NJ/CT statewide:
+- **Ports and routes** — OSM Geofabrik extracts
+- **Industrial facilities** — ~3,700 active EPA TRI sites
+- **Energy facilities** — EIA power plants and generators
+- **Freight contractors** — USASpending.gov logistics/freight NAICS awardees
+- **Vessels** — AISHub live AIS positions (requires API key)
 
-Next coverage work: mature inland risk and sensor context with USGS earthquake,
-water, and hazard feeds, then add flow/economic sources that explain what moves
-through the physical network.
+Risk events come from NOAA/NWS active alerts, USGS earthquake reports, and
+GDACS global disaster events. The `risk_impacts` edge table is rebuilt after
+each ingestion run and links events spatially to affected supply chain assets.
 
 Attribution: map and source data from OpenStreetMap contributors.

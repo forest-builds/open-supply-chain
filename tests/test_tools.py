@@ -44,7 +44,7 @@ def no_db(monkeypatch):
 
 def test_catalog_lists_all_tools():
     result = catalog()
-    assert result["tool_count"] == 18
+    assert result["tool_count"] == 22
     names = {t["name"] for t in result["tools"]}
     assert names == {
         "ports_near",
@@ -65,6 +65,10 @@ def test_catalog_lists_all_tools():
         "topology_relations_for_entity",
         "buffer_entity",
         "example_refrigerated_food_port_newark",
+        "active_alerts_near",
+        "risk_events_near",
+        "vessels_near",
+        "corridor_risk_exposure",
     }
 
 
