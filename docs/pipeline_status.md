@@ -23,6 +23,12 @@ NOAA/NWS active alerts
   -> risk_impacts derived against core geo_entities
   -> FastAPI impact endpoints + deterministic tools
   -> deck.gl alert click/highlight + risk-score layer
+
+GDACS, EPA TRI, EIA, USASpending, and AIS
+  -> source-specific live APIs
+  -> risk_events or geo_entities
+  -> admin-triggered ingestion endpoints
+  -> dry-run smoke coverage and normalized DB helpers
 ```
 
 ## Implemented
@@ -41,6 +47,15 @@ NOAA/NWS active alerts
   `industrial_site`.
 - NOAA CDO station ingestion as optional observation context.
 - NOAA/NWS active alert ingestion into `risk_events`.
+- GDACS live global disaster ingestion into `risk_events`.
+- EPA Envirofacts TRI ingestion into `geo_entities` as active industrial
+  facilities.
+- EIA Open Data v2 power plant ingestion into `geo_entities`, with graceful
+  skip when `EIA_API_KEY` is missing.
+- USASpending.gov logistics contractor ingestion into `geo_entities`, using
+  place-of-performance geocoding with state centroid fallback.
+- AISHub vessel feed ingestion into `geo_entities`, with graceful skip when
+  `AIS_API_KEY` is missing.
 - Persisted `risk_impacts` edges from active risk events to ports, facilities,
   and routes.
 - Risk score endpoint derived from active impact edges.
@@ -49,40 +64,44 @@ NOAA/NWS active alerts
 - deck.gl map rendering with layer controls, alert impact highlighting, risk
   scores, optional stations, and chat result overlays.
 - Local raw-file fallback when PostGIS is down for OSM seed data.
+- AI chat upgraded to Claude Sonnet with multi-hop tool chaining: the model
+  receives entity names, IDs, distances, and risk details from each tool call
+  so it can chain `search_entities → risk_events_near_asset →
+  summarize_asset_exposure` across multiple rounds.
+- Six risk-reasoning tools exposed to the model: `search_entities`,
+  `risk_events_near_asset`, `risk_events_near` (new spatial query by lat/lon),
+  `assets_impacted_by_event`, `summarize_asset_exposure`, `trace_supply_chain`.
+- All non-geocode tool results across rounds merged into a single
+  FeatureCollection for map overlay (previously only last result was shown).
 
 ## Current Local Data
 
-Latest integrity check:
+Latest integrity check (after EPA TRI + USASpending ingestion and impact rebuild):
 
 ```text
-sources: 6
-raw_ingestions: 10
-geo_entities: 135,849
-risk_events: 6
-risk_impacts: 28,611
-entity_relationships: 0
+sources: 9+
+geo_entities: ~140,000+
+risk_events: live (varies with active alerts)
+risk_impacts: 29,142+
 ```
 
-Entity breakdown:
+Entity breakdown (approximate):
 
 ```text
-facility: 14,460
+facility: ~18,000+ (OSM + EPA TRI ~3,700 + EIA power plants + USASpending contractors)
 location/weather_station: 1,910
-location/usgs_water: 742
+location/stream_gauge: 742
+location/vessel: live (AIS, requires key)
 port: 1,086
 route: 117,651
 ```
 
-Risk/impact breakdown:
+Risk/impact breakdown (approximate, varies with active alerts):
 
 ```text
-NOAA/NWS High Surf Advisory / Minor: 2
-NOAA/NWS Rip Current Statement / Moderate: 3
-USGS earthquake / Minor: 1
-
-facility: 2,160 intersects, 294 near
-port: 372 intersects, 144 near
-route: 22,602 intersects, 3,039 near
+facility: 2,000+ intersects, 300+ near
+port: 370+ intersects, 140+ near
+route: 22,000+ intersects, 3,000+ near
 ```
 
 ## Test Coverage
@@ -92,9 +111,8 @@ Python coverage is gated at 90% in `pyproject.toml`.
 Latest local run:
 
 ```text
-118 passed
-TOTAL coverage: 91.51%
-Frontend: 3 Vitest interaction tests passed
+175 passed
+Frontend: 5 Vitest interaction tests passed
 Build: Vite build passed with deck.gl bundle-size warning
 ```
 
@@ -108,6 +126,8 @@ Covered:
   resolution, raw insertion helpers, DB helper calls, and CLI dispatch.
 - USGS earthquake and water-gauge fetch parameterization, parsing,
   normalization, DB helper calls, dry-run behavior, and CLI dispatch.
+- GDACS, EPA TRI, EIA, USASpending, and AIS source contracts, normalization,
+  DB helper calls, dry-run behavior, and admin ingestion scheduling.
 - Impact-network source registration and bounded spatial rule.
 - API fallback responses, CORS/preflight middleware, favicon route, risk events,
   risk impacts, risk scores, sources, and tools.
@@ -137,9 +157,8 @@ Not covered yet:
 
 ## Next Pipeline Steps
 
-1. Verify the impact highlight/risk-score layers in-browser with real WebGL.
-2. Add USGS disasters/hazards as the next mature `risk_events` source.
-3. Rebuild `risk_impacts` after each risk/entity ingestion.
-4. Add MCP wrappers around the governed `/tools/*` surface.
-5. Add `ingestion_id` provenance directly on `geo_entities`.
-6. Add UN Comtrade/Comtrade Plus as product-country flow context.
+1. Improve UX around risk reasoning — surface severity breakdown and impact chains directly in the map UI (not just in chat).
+2. Add UN Comtrade/Comtrade Plus as product-country flow context (what goods move through which corridors).
+3. Add USGS hazards/flood inundation layers as extended risk events.
+4. Add `ingestion_id` provenance directly on `geo_entities` for auditable lineage.
+5. Schedule automated nightly ingestion for GDACS, NOAA alerts, and AIS.

@@ -6,8 +6,12 @@ import uuid
 import psycopg
 import pytest
 
-from api.chains import connected, entity_routes
-from api.tools import find_chain_assets, trace_supply_chain
+from api.chains import connected, entity_routes, refrigerated_food_port_newark_chain
+from api.tools import (
+    example_refrigerated_food_port_newark,
+    find_chain_assets,
+    trace_supply_chain,
+)
 from pipelines.chain_network import build_chain_network
 
 
@@ -151,7 +155,119 @@ def test_find_chain_assets_not_found(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# 8. Admin endpoint — schedules task, returns pipeline key
+# 8. Concrete chain example — refrigerated food through Port Newark
+# ---------------------------------------------------------------------------
+
+
+def test_refrigerated_food_port_newark_no_db(no_db):
+    result = refrigerated_food_port_newark_chain()
+
+    assert result["slug"] == "refrigerated-food-imports-port-newark"
+    assert result["anchor_port"] is None
+    assert result["routes"]["count"] == 0
+    assert result["facilities"]["count"] == 0
+    assert result["vessels"]["count"] == 0
+    assert "EIA petroleum terminals" in " ".join(result["limitations"])
+
+
+def test_refrigerated_food_port_newark_with_evidence(monkeypatch):
+    port_id = str(uuid.uuid4())
+    route_id = str(uuid.uuid4())
+
+    class FakeResult:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def fetchone(self):
+            return self.rows[0] if self.rows else None
+
+        def fetchall(self):
+            return self.rows
+
+    class FakeConn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def execute(self, sql, params=None):
+            if "entity_type = 'port'" in sql:
+                return FakeResult([
+                    {
+                        "id": port_id,
+                        "entity_type": "port",
+                        "subtype": "port",
+                        "name": "Port Newark",
+                        "source_name": "osm",
+                        "confidence": 0.9,
+                        "source_tags": {"name": "Port Newark"},
+                        "geometry": {"type": "Point", "coordinates": [-74.15, 40.68]},
+                    }
+                ])
+            if "relationship_confidence" in sql:
+                return FakeResult([
+                    {
+                        "id": route_id,
+                        "entity_type": "route",
+                        "subtype": "highway",
+                        "name": "I-95",
+                        "source_name": "osm",
+                        "confidence": 0.9,
+                        "source_tags": {"ref": "I 95"},
+                        "relationship_confidence": 0.8,
+                        "geometry": {"type": "LineString", "coordinates": [[-74.16, 40.68], [-74.1, 40.7]]},
+                    }
+                ])
+            if "cold-chain keyword match" in sql:
+                return FakeResult([
+                    {
+                        "id": str(uuid.uuid4()),
+                        "entity_type": "facility",
+                        "subtype": "warehouse",
+                        "name": "Newark Cold Storage",
+                        "source_name": "osm",
+                        "confidence": 0.8,
+                        "source_tags": {"building": "warehouse"},
+                        "via_route_id": route_id,
+                        "via_route_name": "I-95",
+                        "via_route_subtype": "highway",
+                        "chain_confidence": 0.7,
+                        "evidence_label": "cold-chain keyword match",
+                        "geometry": {"type": "Point", "coordinates": [-74.12, 40.69]},
+                    }
+                ])
+            if "ais_vessels" in sql:
+                return FakeResult([
+                    {
+                        "id": str(uuid.uuid4()),
+                        "entity_type": "location",
+                        "subtype": "vessel",
+                        "name": "REEFER EXAMPLE",
+                        "source_name": "ais_vessels",
+                        "confidence": 0.85,
+                        "source_tags": {"ship_type": "cargo", "destination": "NEWARK"},
+                        "distance_m": 1200.0,
+                        "geometry": {"type": "Point", "coordinates": [-74.14, 40.67]},
+                    }
+                ])
+            return FakeResult([])
+
+    monkeypatch.setattr("api.chains.get_connection", lambda: FakeConn())
+
+    result = refrigerated_food_port_newark_chain(radius_km=8, limit=5)
+    tool_result = example_refrigerated_food_port_newark(radius_km=8, limit=5)
+
+    assert result["anchor_port"]["properties"]["name"] == "Port Newark"
+    assert result["routes"]["count"] == 1
+    assert result["facilities"]["features"][0]["properties"]["evidence_label"] == "cold-chain keyword match"
+    assert result["vessels"]["features"][0]["properties"]["source_tags"]["ship_type"] == "cargo"
+    assert result["evidence_count"] == 4
+    assert tool_result["tool"] == "example_refrigerated_food_port_newark"
+
+
+# ---------------------------------------------------------------------------
+# 9. Admin endpoint — schedules task, returns pipeline key
 # ---------------------------------------------------------------------------
 
 
@@ -170,7 +286,7 @@ def test_admin_chain_network_endpoint():
 
 
 # ---------------------------------------------------------------------------
-# 9. Integration — seed port + route, build edges, assert ≥1 SERVED_BY_ROUTE
+# 10. Integration — seed port + route, build edges, assert ≥1 SERVED_BY_ROUTE
 # ---------------------------------------------------------------------------
 
 DB_URL = os.environ.get("DATABASE_URL", "")

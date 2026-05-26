@@ -83,6 +83,16 @@ def test_mcp_topology_tools_return_existing_tool_contract(monkeypatch):
     assert buffer["metadata"]["crs"] == "EPSG:4326"
 
 
+def test_mcp_chain_example_tool(monkeypatch):
+    monkeypatch.setattr("api.chains.get_connection", lambda: _BrokenDB())
+
+    result = mcp_server.example_refrigerated_food_port_newark()
+
+    assert result["tool"] == "example_refrigerated_food_port_newark"
+    assert result["slug"] == "refrigerated-food-imports-port-newark"
+    assert "anchor_port" in result
+
+
 def test_mcp_geocode_uses_existing_geocoder(monkeypatch):
     monkeypatch.setattr(
         "api.mcp_server._geocode",
@@ -92,6 +102,49 @@ def test_mcp_geocode_uses_existing_geocoder(monkeypatch):
     result = mcp_server.geocode("Port Newark")
 
     assert result == {"lat": 40.7, "lon": -74.0, "display_name": "Port Newark"}
+
+
+def test_mcp_alert_tools_return_existing_tool_contract(monkeypatch):
+    monkeypatch.setattr("api.tools.get_connection", lambda: _BrokenDB())
+
+    active = mcp_server.active_alerts_near(lat=40.7, lon=-74.0, radius_km=100)
+    nearby = mcp_server.risk_events_near(lat=40.7, lon=-74.0, radius_km=100, source="noaa_nws_alerts")
+    vessels = mcp_server.vessels_near(lat=40.7, lon=-74.0, radius_km=25)
+
+    assert active["tool"] == "active_alerts_near"
+    assert active["type"] == "FeatureCollection"
+    assert nearby["tool"] == "risk_events_near"
+    assert nearby["parameters"]["source"] == "noaa_nws_alerts"
+    assert vessels["tool"] == "vessels_near"
+    assert vessels["parameters"]["lat"] == 40.7
+
+
+def test_mcp_corridor_risk_and_chain_tools(monkeypatch):
+    monkeypatch.setattr("api.tools.get_connection", lambda: _BrokenDB())
+    monkeypatch.setattr("api.chains.get_connection", lambda: _BrokenDB())
+
+    corridor = mcp_server.corridor_risk_exposure(entity_id="asset-1")
+    chain = mcp_server.trace_supply_chain(entity_id="asset-1")
+    chain_by_name = mcp_server.find_chain_assets(name="Port Newark", entity_type="port")
+    exposure = mcp_server.summarize_asset_exposure(entity_id="asset-1")
+
+    assert corridor["tool"] == "corridor_risk_exposure"
+    assert corridor["type"] == "FeatureCollection"
+    assert corridor["anchor"]["entity_id"] == "asset-1"
+    assert chain["tool"] == "trace_supply_chain"
+    assert chain_by_name["tool"] == "find_chain_assets"
+    assert exposure["tool"] == "summarize_asset_exposure"
+
+
+def test_mcp_impact_tools_return_existing_tool_contract(monkeypatch):
+    monkeypatch.setattr("api.tools.get_connection", lambda: _BrokenDB())
+
+    impacted = mcp_server.assets_impacted_by_event(event_id="event-1", entity_type="port")
+    linked = mcp_server.risk_events_near_asset(entity_id="asset-1")
+
+    assert impacted["tool"] == "assets_impacted_by_event"
+    assert impacted["parameters"]["entity_type"] == "port"
+    assert linked["tool"] == "risk_events_near_asset"
 
 
 def test_mcp_server_instance_is_registerable():
@@ -113,4 +166,19 @@ def test_mcp_server_instance_is_registerable():
         "layer_metadata",
         "topology_relations_for_entity",
         "buffer_entity",
+        "example_refrigerated_food_port_newark",
+        # impact network
+        "risk_events_near_asset",
+        "assets_impacted_by_event",
+        "summarize_asset_exposure",
+        # supply chain graph
+        "trace_supply_chain",
+        "find_chain_assets",
+        # live alerting
+        "active_alerts_near",
+        "risk_events_near",
+        # maritime
+        "vessels_near",
+        # network-level risk
+        "corridor_risk_exposure",
     }

@@ -8,6 +8,7 @@ from api.tools import (
     buffer_entity,
     catalog,
     entities_in_bbox,
+    example_refrigerated_food_port_newark,
     facilities_near,
     gis_metadata,
     layer_metadata,
@@ -43,7 +44,7 @@ def no_db(monkeypatch):
 
 def test_catalog_lists_all_tools():
     result = catalog()
-    assert result["tool_count"] == 17
+    assert result["tool_count"] == 22
     names = {t["name"] for t in result["tools"]}
     assert names == {
         "ports_near",
@@ -63,6 +64,11 @@ def test_catalog_lists_all_tools():
         "layer_metadata",
         "topology_relations_for_entity",
         "buffer_entity",
+        "example_refrigerated_food_port_newark",
+        "active_alerts_near",
+        "risk_events_near",
+        "vessels_near",
+        "corridor_risk_exposure",
     }
 
 
@@ -88,6 +94,17 @@ def test_facilities_near_shape_without_db(no_db):
     assert result["count"] == 0
     assert result["parameters"]["subtype"] == "warehouse"
     assert "warehouse" in result["explanation"]
+
+
+def test_example_refrigerated_food_port_newark_shape_without_db(monkeypatch):
+    monkeypatch.setattr("api.chains.get_connection", lambda: _BrokenDB())
+
+    result = example_refrigerated_food_port_newark()
+
+    assert result["tool"] == "example_refrigerated_food_port_newark"
+    assert result["slug"] == "refrigerated-food-imports-port-newark"
+    assert result["anchor_port"] is None
+    assert result["routes"]["type"] == "FeatureCollection"
 
 
 def test_weather_stations_near_shape_without_db(no_db):

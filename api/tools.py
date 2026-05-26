@@ -230,6 +230,87 @@ TOOL_CATALOG = [
         },
         "returns": "FeatureCollection of corridor-connected peers, or 'No entity found' message",
     },
+    {
+        "name": "example_refrigerated_food_port_newark",
+        "endpoint": "GET /chains/examples/refrigerated-food-port-newark",
+        "description": "Return a concrete worked supply-chain trace for refrigerated food imports through Port Newark.",
+        "parameters": {
+            "radius_km": "float (default 8, max 50) — vessel search radius around the anchor port",
+            "limit": "int (default 10, max 100) — max facilities/vessels to return",
+        },
+        "returns": "Evidence-bearing chain example with anchor port, served routes, facility peers, vessels, flow steps, confidence, and limitations",
+    },
+    {
+        "name": "active_alerts_near",
+        "endpoint": "GET /tools/active-alerts-near",
+        "description": (
+            "Return non-expired active risk events (NOAA weather alerts, USGS earthquakes, GDACS disasters) "
+            "within a radius of a point, ordered by severity then distance. "
+            "Primary tool for real-time hazard awareness at any location."
+        ),
+        "parameters": {
+            "lat": "float — center latitude",
+            "lon": "float — center longitude",
+            "radius_km": "float (default 100, max 500) — search radius in km",
+            "min_severity": "str? — Extreme | Severe | Moderate | Minor — minimum severity threshold",
+            "limit": "int (default 50, max 500)",
+        },
+        "returns": "FeatureCollection of active risk events with severity, urgency, certainty, effective_at, expires_at, distance_km",
+    },
+    {
+        "name": "risk_events_near",
+        "endpoint": "GET /tools/risk-events-near",
+        "description": (
+            "Return risk events within a radius with optional filters for source, active-only status, "
+            "and minimum severity. Use for historical event analysis or multi-source comparison."
+        ),
+        "parameters": {
+            "lat": "float — center latitude",
+            "lon": "float — center longitude",
+            "radius_km": "float (default 100, max 500)",
+            "source": "str? — noaa_nws_alerts | usgs_earthquakes | gdacs",
+            "active_only": "bool (default false) — exclude expired events",
+            "min_severity": "str? — Extreme | Severe | Moderate | Minor",
+            "limit": "int (default 100, max 500)",
+        },
+        "returns": "FeatureCollection of risk events with full metadata",
+    },
+    {
+        "name": "vessels_near",
+        "endpoint": "GET /tools/vessels-near",
+        "description": (
+            "Find AIS-tracked vessels near a point. Returns cargo ships, tankers, passenger vessels "
+            "and other AIS-reporting ships with type, name, and last reported position. "
+            "Use for maritime situational awareness and port activity monitoring."
+        ),
+        "parameters": {
+            "lat": "float — center latitude",
+            "lon": "float — center longitude",
+            "radius_km": "float (default 25, max 200)",
+            "ship_type": "str? — AIS type filter, e.g. cargo, tanker, passenger (partial match)",
+            "limit": "int (default 50, max 500)",
+        },
+        "returns": "FeatureCollection of vessel entities with ship_type, name, distance_km",
+    },
+    {
+        "name": "corridor_risk_exposure",
+        "endpoint": "GET /tools/corridor-risk-exposure",
+        "description": (
+            "Return active risk events affecting an entity AND all its supply-chain corridor peers in one call. "
+            "Each event lists which corridor assets it impacts. Single-call answer to "
+            "'what threats does my entire supply-chain network face right now?' — "
+            "combines graph traversal, impact network lookup, and live alert filtering."
+        ),
+        "parameters": {
+            "entity_id": "uuid — anchor geo_entities.id",
+            "active_only": "bool (default true) — exclude expired events",
+            "limit": "int (default 100, max 1000)",
+        },
+        "returns": (
+            "FeatureCollection of risk events, each with affected_corridor_assets list "
+            "(entity_id, entity_name, entity_type, is_anchor, impact_method, impact_distance_m)"
+        ),
+    },
 ]
 
 
@@ -1015,6 +1096,55 @@ def trace_supply_chain(entity_id: str, limit: int = 30) -> dict[str, Any]:
     }
 
 
+def risk_events_near(
+    lat: float,
+    lon: float,
+    radius_km: float = 150,
+    limit: int = 20,
+) -> dict[str, Any]:
+    """Return active risk events whose geometry intersects a radius around a point."""
+    params = {"lat": lat, "lon": lon, "radius_km": radius_km, "limit": limit}
+    try:
+        with get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                  id::text,
+                  event_type,
+                  severity,
+                  headline,
+                  area_desc,
+                  source_name,
+                  source_event_id,
+                  NULL::text AS impact_method,
+                  NULL::float AS impact_distance_m,
+                  NULL::float AS impact_confidence,
+                  NULL::text AS impact_evidence,
+                  ST_AsGeoJSON(geometry)::json AS geometry
+                FROM risk_events
+                WHERE geometry IS NOT NULL
+                  AND ST_DWithin(geometry::geography, ST_MakePoint(%s, %s)::geography, %s)
+                ORDER BY
+                  CASE severity
+                    WHEN 'Extreme' THEN 1
+                    WHEN 'Severe' THEN 2
+                    WHEN 'Moderate' THEN 3
+                    WHEN 'Minor' THEN 4
+                    ELSE 5
+                  END,
+                  effective_at DESC NULLS LAST
+                LIMIT %s
+                """,
+                (lon, lat, radius_km * 1000, limit),
+            ).fetchall()
+    except psycopg.OperationalError:
+        rows = []
+
+    n = len(rows)
+    explanation = f"Found {n} active risk event{'s' if n != 1 else ''} within {radius_km}km of ({lat:.4f}, {lon:.4f})."
+    return _risk_event_collection("risk_events_near", params, rows, explanation)
+
+
 def find_chain_assets(name: str, entity_type: str = "port", limit: int = 30) -> dict[str, Any]:
     """Search for a named entity then return its corridor-connected peers."""
     anchor = search_entities(q=name, entity_type=entity_type, limit=1)  # type: ignore[arg-type]
@@ -1033,6 +1163,15 @@ def find_chain_assets(name: str, entity_type: str = "port", limit: int = 30) -> 
     result = trace_supply_chain(found_id, limit)
     result["tool"] = "find_chain_assets"
     result["parameters"] = {"name": name, "entity_type": entity_type, "limit": limit}
+    return result
+
+
+def example_refrigerated_food_port_newark(radius_km: float = 8, limit: int = 10) -> dict[str, Any]:
+    """Return the concrete refrigerated-food-through-Port-Newark chain example."""
+    from api.chains import refrigerated_food_port_newark_chain  # noqa: PLC0415
+
+    result = refrigerated_food_port_newark_chain(radius_km=radius_km, limit=limit)
+    result["tool"] = "example_refrigerated_food_port_newark"
     return result
 
 
@@ -1082,4 +1221,405 @@ def summarize_asset_exposure(
         "sources": ["risk_impacts"] if rows else [],
         "explanation": f"Asset {entity_id} is linked to {total} persisted risk impact{'s' if total != 1 else ''}.",
         "confidence": 0.85 if rows else 0.5,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Severity helpers shared by live-alert tools
+# ---------------------------------------------------------------------------
+
+Severity = Literal["Extreme", "Severe", "Moderate", "Minor"]
+EventSource = Literal["noaa_nws_alerts", "usgs_earthquakes", "gdacs"]
+
+_SEVERITY_CASE = """
+    CASE severity
+      WHEN 'Extreme'  THEN 1
+      WHEN 'Severe'   THEN 2
+      WHEN 'Moderate' THEN 3
+      WHEN 'Minor'    THEN 4
+      ELSE 5
+    END
+"""
+
+_SEVERITY_WHERE = f"""
+    AND {_SEVERITY_CASE.strip()}
+      <= CASE %s
+           WHEN 'Extreme'  THEN 1
+           WHEN 'Severe'   THEN 2
+           WHEN 'Moderate' THEN 3
+           WHEN 'Minor'    THEN 4
+           ELSE 5
+         END
+"""
+
+
+def _alert_result(
+    tool: str,
+    params: dict[str, Any],
+    rows: list[dict[str, Any]],
+    explanation: str,
+    confidence: float = 0.9,
+) -> dict[str, Any]:
+    """Rich risk-event FeatureCollection with timestamps, urgency, and optional corridor context."""
+    features = []
+    for row in rows:
+        props: dict[str, Any] = {
+            "record_type": "risk_event",
+            "event_type": row.get("event_type"),
+            "severity": row.get("severity"),
+            "certainty": row.get("certainty"),
+            "urgency": row.get("urgency"),
+            "headline": row.get("headline"),
+            "area_desc": row.get("area_desc"),
+            "source_name": row.get("source_name"),
+            "source_event_id": row.get("source_event_id"),
+            "effective_at": row["effective_at"].isoformat() if row.get("effective_at") else None,
+            "expires_at": row["expires_at"].isoformat() if row.get("expires_at") else None,
+        }
+        if row.get("distance_km") is not None:
+            props["distance_km"] = round(float(row["distance_km"]), 3)
+        if row.get("affected_entity_id"):
+            props["affected_entity_id"] = row["affected_entity_id"]
+            props["affected_entity_name"] = row.get("affected_entity_name")
+            props["affected_entity_type"] = row.get("affected_entity_type")
+            if row.get("is_anchor") is not None:
+                props["is_anchor"] = bool(row["is_anchor"])
+        if row.get("impact_method"):
+            props["impact_method"] = row["impact_method"]
+            if row.get("impact_distance_m") is not None:
+                props["impact_distance_m"] = round(float(row["impact_distance_m"]), 3)
+            if row.get("impact_confidence") is not None:
+                props["impact_confidence"] = float(row["impact_confidence"])
+        features.append(
+            {
+                "type": "Feature",
+                "id": row["id"],
+                "properties": props,
+                "geometry": row["geometry"],
+            }
+        )
+    return {
+        "tool": tool,
+        "parameters": params,
+        "count": len(features),
+        "type": "FeatureCollection",
+        "features": features,
+        "sources": sorted({r["source_name"] for r in rows if r.get("source_name")}),
+        "explanation": explanation,
+        "confidence": confidence,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Live alerting tools
+# ---------------------------------------------------------------------------
+
+
+@tools_router.get("/active-alerts-near")
+def active_alerts_near(
+    lat: Annotated[float, Query(description="Center latitude")],
+    lon: Annotated[float, Query(description="Center longitude")],
+    radius_km: Annotated[float, Query(ge=1, le=500)] = 100,
+    min_severity: Annotated[
+        Severity | None,
+        Query(description="Minimum severity: Extreme | Severe | Moderate | Minor"),
+    ] = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = 50,
+) -> dict:
+    """Return non-expired active risk events within a radius, ordered by severity then distance."""
+    params = {"lat": lat, "lon": lon, "radius_km": radius_km, "min_severity": min_severity, "limit": limit}
+    sev_where = _SEVERITY_WHERE if min_severity else ""
+    sev_params: tuple = (min_severity,) if min_severity else ()
+    try:
+        with get_connection() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                  id::text,
+                  event_type, severity, certainty, urgency,
+                  headline, area_desc, source_name, source_event_id,
+                  effective_at, expires_at,
+                  ST_AsGeoJSON(geometry)::json AS geometry,
+                  ST_Distance(geometry::geography, ST_MakePoint(%s, %s)::geography) / 1000.0 AS distance_km
+                FROM risk_events
+                WHERE geometry IS NOT NULL
+                  AND ST_DWithin(geometry::geography, ST_MakePoint(%s, %s)::geography, %s)
+                  AND (expires_at IS NULL OR expires_at > now())
+                  {sev_where}
+                ORDER BY {_SEVERITY_CASE.strip()}, distance_km
+                LIMIT %s
+                """,
+                (lon, lat, lon, lat, radius_km * 1000) + sev_params + (limit,),
+            ).fetchall()
+    except psycopg.OperationalError:
+        rows = []
+
+    n = len(rows)
+    sev_label = f" (min severity: {min_severity})" if min_severity else ""
+    explanation = (
+        f"Found {n} active alert{'s' if n != 1 else ''}{sev_label} within {radius_km}km "
+        f"of ({lat:.4f}, {lon:.4f}). Active = not expired."
+    )
+    return _alert_result("active_alerts_near", params, rows, explanation)
+
+
+@tools_router.get("/risk-events-near")
+def risk_events_near(
+    lat: Annotated[float, Query(description="Center latitude")],
+    lon: Annotated[float, Query(description="Center longitude")],
+    radius_km: Annotated[float, Query(ge=1, le=500)] = 100,
+    source: Annotated[
+        EventSource | None,
+        Query(description="noaa_nws_alerts | usgs_earthquakes | gdacs"),
+    ] = None,
+    active_only: Annotated[bool, Query(description="Exclude expired events")] = False,
+    min_severity: Annotated[Severity | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+) -> dict:
+    """Return risk events within a radius. Optionally filter by source, active status, severity."""
+    params = {
+        "lat": lat,
+        "lon": lon,
+        "radius_km": radius_km,
+        "source": source,
+        "active_only": active_only,
+        "min_severity": min_severity,
+        "limit": limit,
+    }
+    source_where = "AND source_name = %s" if source else ""
+    source_params: tuple = (source,) if source else ()
+    active_where = "AND (expires_at IS NULL OR expires_at > now())" if active_only else ""
+    sev_where = _SEVERITY_WHERE if min_severity else ""
+    sev_params: tuple = (min_severity,) if min_severity else ()
+    try:
+        with get_connection() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                  id::text,
+                  event_type, severity, certainty, urgency,
+                  headline, area_desc, source_name, source_event_id,
+                  effective_at, expires_at,
+                  ST_AsGeoJSON(geometry)::json AS geometry,
+                  ST_Distance(geometry::geography, ST_MakePoint(%s, %s)::geography) / 1000.0 AS distance_km
+                FROM risk_events
+                WHERE geometry IS NOT NULL
+                  AND ST_DWithin(geometry::geography, ST_MakePoint(%s, %s)::geography, %s)
+                  {source_where}
+                  {active_where}
+                  {sev_where}
+                ORDER BY {_SEVERITY_CASE.strip()}, distance_km
+                LIMIT %s
+                """,
+                (lon, lat, lon, lat, radius_km * 1000) + source_params + sev_params + (limit,),
+            ).fetchall()
+    except psycopg.OperationalError:
+        rows = []
+
+    n = len(rows)
+    src_label = f" from {source}" if source else ""
+    active_label = " (active only)" if active_only else ""
+    explanation = (
+        f"Found {n} risk event{'s' if n != 1 else ''}{src_label}{active_label} "
+        f"within {radius_km}km of ({lat:.4f}, {lon:.4f})."
+    )
+    return _alert_result("risk_events_near", params, rows, explanation)
+
+
+# ---------------------------------------------------------------------------
+# Maritime tool
+# ---------------------------------------------------------------------------
+
+
+@tools_router.get("/vessels-near")
+def vessels_near(
+    lat: Annotated[float, Query(description="Center latitude")],
+    lon: Annotated[float, Query(description="Center longitude")],
+    radius_km: Annotated[float, Query(ge=1, le=200)] = 25,
+    ship_type: Annotated[
+        str | None,
+        Query(description="AIS ship_type partial match, e.g. cargo, tanker, passenger"),
+    ] = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = 50,
+) -> dict:
+    """Find AIS-observed vessels near a point. Optionally filter by ship_type."""
+    params = {"lat": lat, "lon": lon, "radius_km": radius_km, "ship_type": ship_type, "limit": limit}
+    ship_where = "AND source_tags->>'ship_type' ILIKE %s" if ship_type else ""
+    ship_params: tuple = (f"%{ship_type}%",) if ship_type else ()
+    try:
+        with get_connection() as conn:
+            rows = conn.execute(
+                f"""
+                {_point_select()}
+                FROM geo_entities
+                WHERE entity_type = 'location'
+                  AND subtype = 'vessel'
+                  AND source_name = 'ais_vessels'
+                  AND ST_DWithin(geometry::geography, ST_MakePoint(%s, %s)::geography, %s)
+                  {ship_where}
+                ORDER BY distance_km
+                LIMIT %s
+                """,
+                (lon, lat, lon, lat, radius_km * 1000) + ship_params + (limit,),
+            ).fetchall()
+    except psycopg.OperationalError:
+        rows = []
+
+    n = len(rows)
+    ship_label = f" (type: {ship_type})" if ship_type else ""
+    explanation = (
+        f"Found {n} AIS vessel{'s' if n != 1 else ''}{ship_label} within {radius_km}km "
+        f"of ({lat:.4f}, {lon:.4f})." + _nearest_label(rows)
+    )
+    return _tool_result("vessels_near", params, rows, explanation)
+
+
+# ---------------------------------------------------------------------------
+# Corridor risk exposure — graph + impact + live alerts in one call
+# ---------------------------------------------------------------------------
+
+_CORRIDOR_RISK_SQL = """
+WITH anchor_peers AS (
+  SELECT %s AS peer_id
+  UNION
+  SELECT DISTINCT er.subject_entity_id::text
+  FROM entity_relationships er
+  JOIN entity_relationships sr
+    ON sr.object_entity_id  = er.object_entity_id
+   AND sr.relationship_type = 'SERVED_BY_ROUTE'
+   AND sr.subject_entity_id::text = %s
+  WHERE er.relationship_type = 'SERVED_BY_ROUTE'
+    AND er.subject_entity_id::text != %s
+)
+SELECT
+  re.id::text,
+  re.event_type, re.severity, re.certainty, re.urgency,
+  re.headline, re.area_desc, re.source_name, re.source_event_id,
+  re.effective_at, re.expires_at,
+  ge.id::text        AS affected_entity_id,
+  ge.name            AS affected_entity_name,
+  ge.entity_type     AS affected_entity_type,
+  (ge.id::text = %s) AS is_anchor,
+  ri.impact_method,
+  ri.distance_m::float  AS impact_distance_m,
+  ri.confidence::float  AS impact_confidence,
+  ST_AsGeoJSON(re.geometry)::json AS geometry
+FROM risk_impacts ri
+JOIN risk_events  re ON re.id  = ri.risk_event_id
+JOIN geo_entities ge ON ge.id  = ri.impacted_entity_id
+JOIN anchor_peers ap ON ap.peer_id = ge.id::text
+{active_clause}
+ORDER BY
+  {sev_case},
+  re.effective_at DESC NULLS LAST
+LIMIT %s
+"""
+
+
+@tools_router.get("/corridor-risk-exposure")
+def corridor_risk_exposure(
+    entity_id: Annotated[str, Query(description="Anchor geo_entities.id")],
+    active_only: Annotated[bool, Query(description="Exclude expired events")] = True,
+    limit: Annotated[int, Query(ge=1, le=1000)] = 100,
+) -> dict:
+    """
+    Return active risk events affecting an entity AND all its supply-chain corridor peers.
+    Each event shows which corridor assets it impacts — the single-call answer to
+    'what threats does my supply-chain network face right now?'
+    """
+    params = {"entity_id": entity_id, "active_only": active_only, "limit": limit}
+    active_clause = "WHERE (re.expires_at IS NULL OR re.expires_at > now())" if active_only else ""
+    sql = _CORRIDOR_RISK_SQL.format(active_clause=active_clause, sev_case=_SEVERITY_CASE.strip())
+    try:
+        with get_connection() as conn:
+            anchor = conn.execute(
+                "SELECT id::text, entity_type, subtype, name FROM geo_entities WHERE id = %s",
+                (entity_id,),
+            ).fetchone()
+            peer_count_row = conn.execute(
+                """
+                SELECT count(DISTINCT er.subject_entity_id)::int AS n
+                FROM entity_relationships er
+                JOIN entity_relationships sr
+                  ON sr.object_entity_id  = er.object_entity_id
+                 AND sr.relationship_type = 'SERVED_BY_ROUTE'
+                 AND sr.subject_entity_id::text = %s
+                WHERE er.relationship_type = 'SERVED_BY_ROUTE'
+                  AND er.subject_entity_id::text != %s
+                """,
+                (entity_id, entity_id),
+            ).fetchone()
+            rows = conn.execute(sql, (entity_id, entity_id, entity_id, entity_id, limit)).fetchall()
+    except psycopg.OperationalError:
+        anchor = None
+        peer_count_row = None
+        rows = []
+
+    # Group by event, collecting one affected-asset entry per corridor member
+    events_map: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        eid = row["id"]
+        if eid not in events_map:
+            events_map[eid] = {
+                "id": eid,
+                "event_type": row.get("event_type"),
+                "severity": row.get("severity"),
+                "certainty": row.get("certainty"),
+                "urgency": row.get("urgency"),
+                "headline": row.get("headline"),
+                "area_desc": row.get("area_desc"),
+                "source_name": row.get("source_name"),
+                "source_event_id": row.get("source_event_id"),
+                "effective_at": row["effective_at"].isoformat() if row.get("effective_at") else None,
+                "expires_at": row["expires_at"].isoformat() if row.get("expires_at") else None,
+                "geometry": row["geometry"],
+                "affected_corridor_assets": [],
+            }
+        events_map[eid]["affected_corridor_assets"].append(
+            {
+                "entity_id": row["affected_entity_id"],
+                "entity_name": row.get("affected_entity_name"),
+                "entity_type": row.get("affected_entity_type"),
+                "is_anchor": bool(row.get("is_anchor")),
+                "impact_method": row.get("impact_method"),
+                "impact_distance_m": (
+                    round(float(row["impact_distance_m"]), 3) if row.get("impact_distance_m") else None
+                ),
+                "impact_confidence": (
+                    float(row["impact_confidence"]) if row.get("impact_confidence") else None
+                ),
+            }
+        )
+
+    features = [
+        {
+            "type": "Feature",
+            "id": ev["id"],
+            "properties": {k: v for k, v in ev.items() if k != "geometry"},
+            "geometry": ev["geometry"],
+        }
+        for ev in events_map.values()
+    ]
+
+    peer_count = peer_count_row["n"] if peer_count_row else 0
+    active_label = "active " if active_only else ""
+    explanation = (
+        f"Found {len(features)} {active_label}risk event{'s' if len(features) != 1 else ''} "
+        f"across entity {entity_id} and {peer_count} corridor peer{'s' if peer_count != 1 else ''}."
+    )
+    return {
+        "tool": "corridor_risk_exposure",
+        "parameters": params,
+        "anchor": {
+            "entity_id": anchor["id"] if anchor else entity_id,
+            "entity_type": anchor["entity_type"] if anchor else None,
+            "name": anchor["name"] if anchor else None,
+        },
+        "corridor_peer_count": peer_count,
+        "count": len(features),
+        "type": "FeatureCollection",
+        "features": features,
+        "sources": sorted({r["source_name"] for r in rows if r.get("source_name")}),
+        "explanation": explanation,
+        "confidence": 0.8 if features else 0.5,
     }

@@ -23,11 +23,35 @@ def test_tool_summary_handles_geocode_success_and_error() -> None:
 
 
 def test_tool_summary_handles_feature_collection() -> None:
+    # With no features, returns explanation + "No results found."
     summary = chat._tool_summary(
         "ports_near", {"explanation": "Found 2 ports.", "count": 2, "features": []}
     )
+    assert "Found 2 ports." in summary
+    assert "No results found." in summary
 
-    assert summary == "Found 2 ports. (2 features returned to map.)"
+    # With features, includes entity name and id
+    summary_with = chat._tool_summary(
+        "ports_near",
+        {
+            "explanation": "Found 1 port.",
+            "count": 1,
+            "features": [
+                {
+                    "id": "abc-123",
+                    "properties": {
+                        "name": "Port Newark",
+                        "entity_type": "port",
+                        "subtype": None,
+                        "distance_km": 2.5,
+                    },
+                }
+            ],
+        },
+    )
+    assert "Port Newark" in summary_with
+    assert "abc-123" in summary_with
+    assert "2.5km" in summary_with
 
 
 def test_run_tool_dispatches_known_tools(monkeypatch) -> None:
@@ -61,8 +85,13 @@ def test_chain_tools_are_exposed_to_llm_tool_definitions() -> None:
     tool_names = {tool["name"] for tool in chat.TOOL_DEFS}
     openai_tool_names = {tool["function"]["name"] for tool in chat.OPENAI_TOOL_DEFS}
 
-    assert {"trace_supply_chain", "find_chain_assets"}.issubset(tool_names)
-    assert {"trace_supply_chain", "find_chain_assets"}.issubset(openai_tool_names)
+    required = {
+        "trace_supply_chain", "find_chain_assets",
+        "risk_events_near_asset", "risk_events_near",
+        "assets_impacted_by_event", "summarize_asset_exposure",
+    }
+    assert required.issubset(tool_names)
+    assert required.issubset(openai_tool_names)
 
 
 def test_run_tool_unknown_tool_returns_error() -> None:

@@ -84,6 +84,7 @@ Weather stations and stream gauges as separate toggles feel a bit widget-y. Alte
 - [x] **Widen OSM coverage** — CT/NJ/NY statewide Geofabrik extracts loaded for ports, facilities, and routes
 - [ ] **Impact network UX** — clickable alert → slide-in panel listing top impacted assets with name, type, distance, risk score. Much more discoverable than the buried yellow dots.
 - [ ] **Risk score legend** — small color-coded legend under the Risk Scores toggle so the green/red scale is self-explanatory
+- [x] **First concrete chain example** — refrigerated food imports through Port Newark now has `/chains/examples/refrigerated-food-port-newark` and the `example_refrigerated_food_port_newark` MCP/tool wrapper.
 - [ ] **End-to-end supply chain chains** — the data right now is nodes and edges (ports, facilities, routes) but we don't have actual cargo flow / shipment paths. Need a concept of "chain": origin → facility → port → vessel → destination
 - [ ] **More data sources** (see links below) — EIA energy/fuel data, EPA sites, GDACS global disasters, USASpending for contract visibility, OpenCorporates for company linkage
 
