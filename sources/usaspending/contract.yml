@@ -1,0 +1,22 @@
+source_name: usaspending
+api_url: https://api.usaspending.gov/api/v2/search/spending_by_award/
+auth_required: false
+refresh_rate: monthly
+raw_schema: usaspending_award_search_json
+canonical_entities_created:
+  - geo_entities
+cleaning_rules:
+  - filter to logistics/freight NAICS codes (484xx, 483xx, 488xx, 493xx)
+  - filter to NY/NJ/CT recipient locations
+  - skip records missing recipient lat/lon
+  - use recipient_uei as source_entity_id when available, else award_id
+  - paginate up to MAX_PAGES (50 pages × 100 results = 5000 awards)
+  - dedup by source_entity_id (one geo_entity per recipient UEI)
+join_keys:
+  - recipient_uei
+  - generated_unique_award_id
+geo_fields:
+  - recipient_location.latitude / recipient_location.longitude (Point)
+confidence_score: 0.75
+license: U.S. Government Work (public domain)
+attribution: USASpending.gov — U.S. Department of the Treasury

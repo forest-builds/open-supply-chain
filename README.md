@@ -34,6 +34,7 @@ The current vertical slice uses:
   routes.py            GeoJSON/risk/source endpoints
   tools.py             Deterministic spatial tools
   chat.py              LLM-backed tool orchestration endpoint
+  mcp_server.py        FastMCP server over governed tools
   admin.py             Background ingestion triggers
 /app
   /map_ui              deck.gl + Vite app
@@ -119,6 +120,42 @@ Start the API:
 
 ```bash
 uvicorn api.main:app --reload
+```
+
+Run the MCP server locally:
+
+```bash
+fastmcp run fastmcp.json
+```
+
+The MCP server exposes governed spatial search tools plus GIS-native metadata
+and topology helpers: CRS/layer metadata, entity relation checks, and bounded
+entity buffers. All geometry is returned as GeoJSON in EPSG:4326 longitude /
+latitude order.
+
+Verify and inspect the MCP registration:
+
+```bash
+fastmcp inspect fastmcp.json
+fastmcp dev inspector fastmcp.json
+```
+
+Register it with Claude Desktop:
+
+```bash
+fastmcp install claude-desktop api/mcp_server.py:mcp \
+  --name "Open Supply Chain" \
+  --with fastmcp==3.3.1 \
+  --with-editable .
+```
+
+For another MCP-compatible client, generate standard MCP JSON:
+
+```bash
+fastmcp install mcp-json api/mcp_server.py:mcp \
+  --name "Open Supply Chain" \
+  --with fastmcp==3.3.1 \
+  --with-editable .
 ```
 
 Start the map UI:

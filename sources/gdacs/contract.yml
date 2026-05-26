@@ -1,0 +1,20 @@
+source_name: gdacs
+api_url: https://www.gdacs.org/gdacsapi/api/events/geteventlist/MAP
+auth_required: false
+refresh_rate: hourly
+raw_schema: gdacs_geojson_featurecollection
+canonical_entities_created:
+  - risk_events
+cleaning_rules:
+  - map alertlevel (Red/Orange/Green) to severity (Extreme/Severe/Minor)
+  - map eventtype code to descriptive event_type string
+  - use eventid as source_event_id
+  - store point from event lat/lon; polygon if provided
+  - preserve todate/fromdate as effective_at/expires_at
+join_keys:
+  - eventid
+geo_fields:
+  - point (lat/lon)
+confidence_score: 0.90
+license: Creative Commons Attribution 4.0
+attribution: Global Disaster Alerting Coordination System (GDACS) — gdacs.org

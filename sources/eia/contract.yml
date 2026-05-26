@@ -1,0 +1,20 @@
+source_name: eia
+api_url: https://api.eia.gov/v2/electricity/operating-generator-capacity/
+auth_required: true
+refresh_rate: monthly
+raw_schema: eia_v2_api_json
+canonical_entities_created:
+  - geo_entities
+cleaning_rules:
+  - requires EIA_API_KEY environment variable
+  - fetch electricity operating generators for NY, NJ, CT
+  - skip records missing latitude/longitude
+  - use plantCode as source_entity_id
+  - store fuel_type, capacity_mw, and state in source_tags
+join_keys:
+  - plantCode
+geo_fields:
+  - latitude / longitude (Point, WGS84)
+confidence_score: 0.95
+license: U.S. Government Work (public domain)
+attribution: U.S. Energy Information Administration — Open Data API

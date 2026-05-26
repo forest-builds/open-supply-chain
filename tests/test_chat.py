@@ -38,6 +38,33 @@ def test_run_tool_dispatches_known_tools(monkeypatch) -> None:
     assert result == {"tool": "ports", "kwargs": {"lat": 1, "lon": 2}}
 
 
+def test_run_tool_dispatches_chain_tools(monkeypatch) -> None:
+    monkeypatch.setattr(
+        chat,
+        "trace_supply_chain",
+        lambda **kwargs: {"tool": "trace", "kwargs": kwargs},
+    )
+    monkeypatch.setattr(
+        chat,
+        "find_chain_assets",
+        lambda **kwargs: {"tool": "find_chain", "kwargs": kwargs},
+    )
+
+    traced = chat._run_tool("trace_supply_chain", {"entity_id": "asset-1", "limit": 5})
+    found = chat._run_tool("find_chain_assets", {"name": "Newark", "entity_type": "port"})
+
+    assert traced == {"tool": "trace", "kwargs": {"entity_id": "asset-1", "limit": 5}}
+    assert found == {"tool": "find_chain", "kwargs": {"name": "Newark", "entity_type": "port"}}
+
+
+def test_chain_tools_are_exposed_to_llm_tool_definitions() -> None:
+    tool_names = {tool["name"] for tool in chat.TOOL_DEFS}
+    openai_tool_names = {tool["function"]["name"] for tool in chat.OPENAI_TOOL_DEFS}
+
+    assert {"trace_supply_chain", "find_chain_assets"}.issubset(tool_names)
+    assert {"trace_supply_chain", "find_chain_assets"}.issubset(openai_tool_names)
+
+
 def test_run_tool_unknown_tool_returns_error() -> None:
     assert chat._run_tool("nope", {}) == {"error": "Unknown tool: nope"}
 

@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.admin import admin_router
+from api.chains import chains_router
 from api.chat import chat_router
 from api.config import settings
 from api.routes import router
@@ -18,6 +19,7 @@ app.add_middleware(
 )
 
 app.include_router(router)
+app.include_router(chains_router)
 app.include_router(tools_router)
 app.include_router(chat_router)
 app.include_router(admin_router)

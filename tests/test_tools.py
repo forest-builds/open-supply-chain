@@ -5,9 +5,12 @@ import pytest
 
 from api.tools import (
     assets_impacted_by_event,
+    buffer_entity,
     catalog,
     entities_in_bbox,
     facilities_near,
+    gis_metadata,
+    layer_metadata,
     ports_near,
     risk_events_near_asset,
     routes_near,
@@ -15,6 +18,7 @@ from api.tools import (
     search_entities,
     stream_gauges_near,
     summarize_asset_exposure,
+    topology_relations_for_entity,
     weather_stations_near,
 )
 
@@ -39,7 +43,7 @@ def no_db(monkeypatch):
 
 def test_catalog_lists_all_tools():
     result = catalog()
-    assert result["tool_count"] == 11
+    assert result["tool_count"] == 17
     names = {t["name"] for t in result["tools"]}
     assert names == {
         "ports_near",
@@ -53,6 +57,12 @@ def test_catalog_lists_all_tools():
         "risk_events_near_asset",
         "routes_impacted_by_alert",
         "summarize_asset_exposure",
+        "trace_supply_chain",
+        "find_chain_assets",
+        "gis_metadata",
+        "layer_metadata",
+        "topology_relations_for_entity",
+        "buffer_entity",
     }
 
 
@@ -127,6 +137,38 @@ def test_search_entities_with_type_filter_without_db(no_db):
     assert "(port)" in result["explanation"]
 
 
+def test_gis_metadata_describes_crs_and_units():
+    result = gis_metadata()
+    assert result["tool"] == "gis_metadata"
+    assert result["metadata"]["crs"]["epsg"] == "EPSG:4326"
+    assert result["metadata"]["coordinate_order"] == ["longitude", "latitude"]
+    assert result["metadata"]["geometry_format"] == "GeoJSON"
+
+
+def test_layer_metadata_shape_without_db(no_db):
+    result = layer_metadata()
+    assert result["tool"] == "layer_metadata"
+    assert result["layer_count"] == 0
+    assert result["layers"] == []
+    assert result["metadata"]["crs"]["srid"] == 4326
+
+
+def test_topology_relations_for_entity_shape_without_db(no_db):
+    result = topology_relations_for_entity(entity_id="asset-1", relation="intersects")
+    assert result["tool"] == "topology_relations_for_entity"
+    assert result["type"] == "FeatureCollection"
+    assert result["parameters"]["relation"] == "intersects"
+    assert result["metadata"]["topology_engine"] == "PostGIS"
+
+
+def test_buffer_entity_shape_without_db(no_db):
+    result = buffer_entity(entity_id="asset-1", distance_m=500)
+    assert result["tool"] == "buffer_entity"
+    assert result["type"] == "FeatureCollection"
+    assert result["parameters"]["distance_m"] == 500
+    assert result["metadata"]["crs"] == "EPSG:4326"
+
+
 def test_assets_impacted_by_event_shape_without_db(no_db):
     result = assets_impacted_by_event(event_id="risk-1")
     assert result["tool"] == "assets_impacted_by_event"
@@ -184,6 +226,8 @@ def test_all_tools_return_required_keys(no_db):
         risk_events_near_asset(entity_id="asset-1"),
         routes_impacted_by_alert(event_id="risk-1"),
         summarize_asset_exposure(entity_id="asset-1"),
+        topology_relations_for_entity(entity_id="asset-1"),
+        buffer_entity(entity_id="asset-1"),
     ]
     for result in results:
         assert REQUIRED_KEYS.issubset(result.keys()), f"Missing keys in {result['tool']}"

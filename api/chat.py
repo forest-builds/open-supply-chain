@@ -11,10 +11,12 @@ from pydantic import BaseModel
 from api.tools import (
     entities_in_bbox,
     facilities_near,
+    find_chain_assets,
     ports_near,
     routes_near,
     search_entities,
     stream_gauges_near,
+    trace_supply_chain,
     weather_stations_near,
 )
 
@@ -37,9 +39,10 @@ Rules:
 1. If the user mentions a place name or address, ALWAYS call geocode first to get lat/lon.
 2. Call the most specific spatial tool that matches the request.
 3. For flood, river, waterway, or water-level questions use stream_gauges_near.
-4. Respond concisely — state how many results were found, the nearest entity, and any key details.
-5. Do NOT list every entity name. Summarize instead.
-6. If you cannot find useful results, say so clearly.\
+4. For supply chain connectivity questions ("what's connected to X", "what shares a corridor with Y"), use find_chain_assets (by name) or trace_supply_chain (by entity ID).
+5. Respond concisely — state how many results were found, the nearest entity, and any key details.
+6. Do NOT list every entity name. Summarize instead.
+7. If you cannot find useful results, say so clearly.\
 """
 
 # Anthropic tool definitions (input_schema format)
@@ -173,6 +176,37 @@ TOOL_DEFS: list[dict[str, Any]] = [
             "required": ["q"],
         },
     },
+    {
+        "name": "trace_supply_chain",
+        "description": (
+            "Find ports and facilities sharing a transportation corridor with a given entity ID. "
+            "Use when the user asks what assets are connected to or reachable from a specific port or facility by entity UUID."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "entity_id": {"type": "string", "description": "geo_entities.id UUID"},
+                "limit": {"type": "integer", "description": "Max results (default 30)"},
+            },
+            "required": ["entity_id"],
+        },
+    },
+    {
+        "name": "find_chain_assets",
+        "description": (
+            "Search for a named port or facility, then return corridor-connected supply chain peers. "
+            "Use when the user names a place and asks about its supply chain connections."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Partial name match for the anchor entity"},
+                "entity_type": {"type": "string", "description": "port | facility (default: port)"},
+                "limit": {"type": "integer", "description": "Max results (default 30)"},
+            },
+            "required": ["name"],
+        },
+    },
 ]
 
 # OpenAI tool definitions — same schema, different wrapper
@@ -224,6 +258,10 @@ def _run_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
         return stream_gauges_near(**args)
     if name == "search_entities":
         return search_entities(**args)
+    if name == "trace_supply_chain":
+        return trace_supply_chain(**args)
+    if name == "find_chain_assets":
+        return find_chain_assets(**args)
     return {"error": f"Unknown tool: {name}"}
 
 

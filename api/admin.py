@@ -128,3 +128,137 @@ def ingest_impact_network(background_tasks: BackgroundTasks) -> dict[str, Any]:
         "pipeline": "impact-network",
         "message": "Risk impact network rebuild started in background.",
     }
+
+
+def _rebuild_chain_network() -> None:
+    try:
+        from pipelines.chain_network import SOURCE_API_URL, SOURCE_NAME, build_chain_network  # noqa: PLC0415
+        from pipelines.db import db_connection  # noqa: PLC0415
+        from pipelines.impact_network import ensure_source  # noqa: PLC0415
+
+        with db_connection() as conn:
+            source_id = ensure_source(conn, SOURCE_NAME, SOURCE_API_URL, False, "after entity ingestion", {})
+            count = build_chain_network(conn, source_id)
+            conn.commit()
+        logger.info("Built %d SERVED_BY_ROUTE edges", count)
+    except Exception:
+        logger.exception("Chain network build failed")
+
+
+@admin_router.post("/ingest/chain-network")
+def ingest_chain_network(background_tasks: BackgroundTasks) -> dict[str, Any]:
+    """Build SERVED_BY_ROUTE edges linking ports/facilities to routes within 500m."""
+    background_tasks.add_task(_rebuild_chain_network)
+    return {
+        "status": "accepted",
+        "pipeline": "chain-network",
+        "message": "Chain network build started in background.",
+    }
+
+
+def _ingest_gdacs() -> None:
+    try:
+        from pipelines.gdacs import run  # noqa: PLC0415
+
+        run(dry_run=False)
+    except Exception:
+        logger.exception("GDACS ingestion failed")
+
+
+def _ingest_epa() -> None:
+    try:
+        from pipelines.epa import run  # noqa: PLC0415
+
+        run(dry_run=False)
+    except Exception:
+        logger.exception("EPA ECHO ingestion failed")
+
+
+def _ingest_eia() -> None:
+    try:
+        from pipelines.eia import run  # noqa: PLC0415
+
+        run(dry_run=False)
+    except Exception:
+        logger.exception("EIA ingestion failed")
+
+
+def _ingest_usaspending() -> None:
+    try:
+        from pipelines.usaspending import run  # noqa: PLC0415
+
+        run(dry_run=False)
+    except Exception:
+        logger.exception("USASpending ingestion failed")
+
+
+def _ingest_ais() -> None:
+    try:
+        from pipelines.ais import run  # noqa: PLC0415
+
+        run(dry_run=False)
+    except Exception:
+        logger.exception("AIS vessel ingestion failed")
+
+
+@admin_router.post("/ingest/gdacs")
+def ingest_gdacs(background_tasks: BackgroundTasks) -> dict[str, Any]:
+    """Fetch active GDACS global disaster events (floods, hurricanes, volcanoes, etc.) and load as risk_events."""
+    background_tasks.add_task(_ingest_gdacs)
+    return {
+        "status": "accepted",
+        "pipeline": "gdacs",
+        "message": "GDACS global disaster ingestion started in background.",
+    }
+
+
+@admin_router.post("/ingest/epa")
+def ingest_epa(background_tasks: BackgroundTasks) -> dict[str, Any]:
+    """Fetch EPA ECHO hazmat (RCRA) and Superfund (CERCLA) facility locations for NY/NJ/CT."""
+    background_tasks.add_task(_ingest_epa)
+    return {
+        "status": "accepted",
+        "pipeline": "epa",
+        "message": "EPA ECHO facility ingestion started in background.",
+    }
+
+
+@admin_router.post("/ingest/eia")
+def ingest_eia(background_tasks: BackgroundTasks) -> dict[str, Any]:
+    """Fetch EIA power plant locations for NY/NJ/CT. Requires EIA_API_KEY environment variable."""
+    if not os.environ.get("EIA_API_KEY"):
+        raise HTTPException(
+            status_code=400, detail="EIA_API_KEY environment variable is not set."
+        )
+    background_tasks.add_task(_ingest_eia)
+    return {
+        "status": "accepted",
+        "pipeline": "eia",
+        "message": "EIA energy facility ingestion started in background.",
+    }
+
+
+@admin_router.post("/ingest/usaspending")
+def ingest_usaspending(background_tasks: BackgroundTasks) -> dict[str, Any]:
+    """Fetch federal logistics/freight contractor locations for NY/NJ/CT from USASpending.gov."""
+    background_tasks.add_task(_ingest_usaspending)
+    return {
+        "status": "accepted",
+        "pipeline": "usaspending",
+        "message": "USASpending contractor ingestion started in background.",
+    }
+
+
+@admin_router.post("/ingest/ais")
+def ingest_ais(background_tasks: BackgroundTasks) -> dict[str, Any]:
+    """Fetch live AIS vessel positions for the tri-state AOI. Requires AIS_API_KEY environment variable."""
+    if not os.environ.get("AIS_API_KEY"):
+        raise HTTPException(
+            status_code=400, detail="AIS_API_KEY environment variable is not set."
+        )
+    background_tasks.add_task(_ingest_ais)
+    return {
+        "status": "accepted",
+        "pipeline": "ais",
+        "message": "AIS vessel position ingestion started in background.",
+    }

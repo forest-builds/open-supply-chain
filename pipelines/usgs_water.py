@@ -47,8 +47,8 @@ def fetch_sites(states: list[str] = AOI_STATES) -> str:
         )
         resp.raise_for_status()
         lines = resp.text.splitlines()
-        comment_lines = [l for l in lines if l.startswith("#")]
-        data_lines = [l for l in lines if not l.startswith("#") and l.strip()]
+        comment_lines = [line for line in lines if line.startswith("#")]
+        data_lines = [line for line in lines if not line.startswith("#") and line.strip()]
         if not data_lines:
             continue
         if not header_written:

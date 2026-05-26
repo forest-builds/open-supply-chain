@@ -10,6 +10,38 @@ from api.db import get_connection
 tools_router = APIRouter(prefix="/tools", tags=["tools"])
 
 EntityType = Literal["port", "facility", "route", "location", "aoi"]
+TopologyRelation = Literal["intersects", "contains", "within", "touches", "crosses"]
+
+GIS_METADATA = {
+    "crs": {
+        "srid": 4326,
+        "epsg": "EPSG:4326",
+        "name": "WGS 84",
+        "geometry_column_srid": 4326,
+        "geojson_crs_assumption": "GeoJSON coordinates are longitude/latitude in WGS 84.",
+    },
+    "coordinate_order": ["longitude", "latitude"],
+    "geometry_format": "GeoJSON",
+    "storage": "PostGIS geometry(Geometry, 4326)",
+    "distance_units": {
+        "radius_parameters": "kilometers unless named distance_m",
+        "distance_properties": "kilometers for distance_km, meters for *_distance_m",
+        "distance_calculation": "geography casts are used for meter/kilometer distance tools",
+    },
+    "topology_model": {
+        "engine": "PostGIS",
+        "supported_relations": ["intersects", "contains", "within", "touches", "crosses"],
+        "bounded_queries": "Topology tools operate on persisted entity geometries, not raw table access.",
+    },
+}
+
+_TOPOLOGY_PREDICATES = {
+    "intersects": "ST_Intersects",
+    "contains": "ST_Contains",
+    "within": "ST_Within",
+    "touches": "ST_Touches",
+    "crosses": "ST_Crosses",
+}
 
 # ---------------------------------------------------------------------------
 # Catalog — machine-readable tool discovery for MCP
@@ -103,6 +135,42 @@ TOOL_CATALOG = [
         "returns": "ToolResult with matching GeoJSON features ranked by name",
     },
     {
+        "name": "gis_metadata",
+        "endpoint": "GET /tools/gis-metadata",
+        "description": "Return CRS, coordinate order, geometry format, units, and topology metadata for the GIS tool layer.",
+        "parameters": {},
+        "returns": "Metadata describing the GIS assumptions shared by API and MCP tools",
+    },
+    {
+        "name": "layer_metadata",
+        "endpoint": "GET /tools/layer-metadata",
+        "description": "Summarize available GIS layers, feature counts, sources, and first/last seen timestamps.",
+        "parameters": {},
+        "returns": "Layer/source freshness summary grouped by entity_type and subtype",
+    },
+    {
+        "name": "topology_relations_for_entity",
+        "endpoint": "GET /tools/topology-relations-for-entity",
+        "description": "Find persisted entities with a selected PostGIS topological relation to an anchor entity.",
+        "parameters": {
+            "entity_id": "uuid — anchor geo_entities.id",
+            "relation": "str (default intersects) — intersects | contains | within | touches | crosses",
+            "entity_type": "str? — optional result filter: port | facility | route | location | aoi",
+            "limit": "int (default 100, max 1000)",
+        },
+        "returns": "ToolResult FeatureCollection with topology_relation on each feature",
+    },
+    {
+        "name": "buffer_entity",
+        "endpoint": "GET /tools/buffer-entity",
+        "description": "Return a bounded buffer polygon around one persisted entity geometry.",
+        "parameters": {
+            "entity_id": "uuid — geo_entities.id",
+            "distance_m": "float (default 1000, max 100000) — buffer distance in meters",
+        },
+        "returns": "FeatureCollection containing a derived buffer feature",
+    },
+    {
         "name": "assets_impacted_by_event",
         "endpoint": "GET /tools/assets-impacted-by-event",
         "description": "Return ports, facilities, and routes linked to a persisted risk event impact edge.",
@@ -141,6 +209,26 @@ TOOL_CATALOG = [
             "entity_id": "uuid — geo_entities.id",
         },
         "returns": "Summary counts by severity/event type plus supporting events",
+    },
+    {
+        "name": "trace_supply_chain",
+        "endpoint": "GET /chains/connected",
+        "description": "Find ports and facilities sharing a transportation corridor with a given entity ID.",
+        "parameters": {
+            "entity_id": "uuid — geo_entities.id",
+            "limit": "int (default 30, max 500)",
+        },
+        "returns": "FeatureCollection with corridor peers, via_route_id, via_route_name, chain_confidence",
+    },
+    {
+        "name": "find_chain_assets",
+        "description": "Search for a named port or facility, then return corridor-connected supply chain peers.",
+        "parameters": {
+            "name": "str — partial name match",
+            "entity_type": "str (default 'port') — port | facility",
+            "limit": "int (default 30)",
+        },
+        "returns": "FeatureCollection of corridor-connected peers, or 'No entity found' message",
     },
 ]
 
@@ -543,6 +631,247 @@ def search_entities(
     return _tool_result("search_entities", params, rows, explanation)
 
 
+@tools_router.get("/gis-metadata")
+def gis_metadata() -> dict[str, Any]:
+    """Return CRS, units, and geometry assumptions for GIS clients."""
+    return {
+        "tool": "gis_metadata",
+        "metadata": GIS_METADATA,
+        "explanation": "All stored geometries use EPSG:4326 and GeoJSON longitude/latitude output.",
+        "confidence": 1.0,
+    }
+
+
+@tools_router.get("/layer-metadata")
+def layer_metadata() -> dict[str, Any]:
+    """Summarize available GIS layers, sources, and freshness."""
+    try:
+        with get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                  entity_type,
+                  subtype,
+                  count(*)::int AS feature_count,
+                  array_agg(DISTINCT source_name ORDER BY source_name) AS sources,
+                  min(first_seen_at) AS first_seen_at,
+                  max(last_seen_at) AS last_seen_at
+                FROM geo_entities
+                GROUP BY entity_type, subtype
+                ORDER BY entity_type, subtype NULLS FIRST
+                """
+            ).fetchall()
+            source_rows = conn.execute(
+                """
+                SELECT
+                  s.name,
+                  s.api_url,
+                  s.license,
+                  s.attribution,
+                  s.refresh_rate,
+                  count(ge.id)::int AS feature_count,
+                  max(ge.last_seen_at) AS last_seen_at
+                FROM sources s
+                LEFT JOIN geo_entities ge ON ge.source_id = s.id
+                GROUP BY s.id, s.name, s.api_url, s.license, s.attribution, s.refresh_rate
+                ORDER BY feature_count DESC, s.name
+                """
+            ).fetchall()
+    except psycopg.OperationalError:
+        rows = []
+        source_rows = []
+
+    layers = [
+        {
+            "entity_type": row["entity_type"],
+            "subtype": row["subtype"],
+            "feature_count": row["feature_count"],
+            "sources": row["sources"] or [],
+            "first_seen_at": row["first_seen_at"].isoformat() if row["first_seen_at"] else None,
+            "last_seen_at": row["last_seen_at"].isoformat() if row["last_seen_at"] else None,
+            "crs": GIS_METADATA["crs"]["epsg"],
+            "geometry_format": GIS_METADATA["geometry_format"],
+        }
+        for row in rows
+    ]
+    sources = [
+        {
+            "name": row["name"],
+            "api_url": row["api_url"],
+            "license": row["license"],
+            "attribution": row["attribution"],
+            "refresh_rate": row["refresh_rate"],
+            "feature_count": row["feature_count"],
+            "last_seen_at": row["last_seen_at"].isoformat() if row["last_seen_at"] else None,
+        }
+        for row in source_rows
+    ]
+    return {
+        "tool": "layer_metadata",
+        "layer_count": len(layers),
+        "layers": layers,
+        "source_count": len(sources),
+        "sources": sources,
+        "metadata": GIS_METADATA,
+        "explanation": f"Found {len(layers)} GIS layer group{'s' if len(layers) != 1 else ''}.",
+        "confidence": 0.95 if layers or sources else 0.5,
+    }
+
+
+@tools_router.get("/topology-relations-for-entity")
+def topology_relations_for_entity(
+    entity_id: Annotated[str, Query(description="Anchor geo_entities.id")],
+    relation: Annotated[
+        TopologyRelation,
+        Query(description="intersects | contains | within | touches | crosses"),
+    ] = "intersects",
+    entity_type: Annotated[EntityType | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=1000)] = 100,
+) -> dict[str, Any]:
+    """Find persisted entities with a selected topological relation to an anchor entity."""
+    params = {
+        "entity_id": entity_id,
+        "relation": relation,
+        "entity_type": entity_type,
+        "limit": limit,
+    }
+    predicate = _TOPOLOGY_PREDICATES[relation]
+    type_where = "AND ge.entity_type = %s" if entity_type else ""
+    type_param = (entity_type,) if entity_type else ()
+    try:
+        with get_connection() as conn:
+            rows = conn.execute(
+                f"""
+                WITH anchor AS (
+                  SELECT id, geometry
+                  FROM geo_entities
+                  WHERE id = %s
+                )
+                SELECT
+                  ge.id::text,
+                  ge.entity_type,
+                  ge.subtype,
+                  ge.name,
+                  ge.source_name,
+                  ge.confidence::float,
+                  ge.source_tags,
+                  ST_AsGeoJSON(ge.geometry)::json AS geometry
+                FROM anchor
+                JOIN geo_entities ge
+                  ON ge.id <> anchor.id
+                 AND {predicate}(ge.geometry, anchor.geometry)
+                WHERE true
+                  {type_where}
+                ORDER BY ge.entity_type, ge.name NULLS LAST
+                LIMIT %s
+                """,
+                (entity_id,) + type_param + (limit,),
+            ).fetchall()
+    except psycopg.OperationalError:
+        rows = []
+
+    features = []
+    for row in rows:
+        features.append(
+            {
+                "type": "Feature",
+                "id": row["id"],
+                "properties": {
+                    "entity_type": row["entity_type"],
+                    "subtype": row.get("subtype"),
+                    "name": row.get("name"),
+                    "source_name": row.get("source_name"),
+                    "confidence": row.get("confidence"),
+                    "source_tags": row.get("source_tags"),
+                    "topology_relation": relation,
+                    "anchor_entity_id": entity_id,
+                },
+                "geometry": row["geometry"],
+            }
+        )
+    return {
+        "tool": "topology_relations_for_entity",
+        "parameters": params,
+        "count": len(features),
+        "type": "FeatureCollection",
+        "features": features,
+        "sources": sorted({row["source_name"] for row in rows if row.get("source_name")}),
+        "explanation": (
+            f"Found {len(features)} entit{'ies' if len(features) != 1 else 'y'} "
+            f"where geometry {relation} anchor entity {entity_id}."
+        ),
+        "confidence": 0.85 if features else 0.5,
+        "metadata": {"crs": GIS_METADATA["crs"]["epsg"], "topology_engine": "PostGIS"},
+    }
+
+
+@tools_router.get("/buffer-entity")
+def buffer_entity(
+    entity_id: Annotated[str, Query(description="geo_entities.id")],
+    distance_m: Annotated[float, Query(ge=1, le=100000)] = 1000,
+) -> dict[str, Any]:
+    """Return a derived buffer polygon around one persisted entity."""
+    params = {"entity_id": entity_id, "distance_m": distance_m}
+    try:
+        with get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT
+                  id::text,
+                  entity_type,
+                  subtype,
+                  name,
+                  source_name,
+                  confidence::float,
+                  ST_AsGeoJSON(ST_Buffer(geometry::geography, %s)::geometry)::json AS geometry
+                FROM geo_entities
+                WHERE id = %s
+                """,
+                (distance_m, entity_id),
+            ).fetchone()
+    except psycopg.OperationalError:
+        row = None
+
+    features = []
+    sources = []
+    if row:
+        sources = [row["source_name"]] if row.get("source_name") else []
+        features.append(
+            {
+                "type": "Feature",
+                "id": f"{row['id']}:buffer:{int(distance_m)}m",
+                "properties": {
+                    "record_type": "derived_buffer",
+                    "entity_id": row["id"],
+                    "entity_type": row["entity_type"],
+                    "subtype": row.get("subtype"),
+                    "name": row.get("name"),
+                    "source_name": row.get("source_name"),
+                    "confidence": row.get("confidence"),
+                    "buffer_distance_m": distance_m,
+                    "crs": GIS_METADATA["crs"]["epsg"],
+                },
+                "geometry": row["geometry"],
+            }
+        )
+
+    return {
+        "tool": "buffer_entity",
+        "parameters": params,
+        "count": len(features),
+        "type": "FeatureCollection",
+        "features": features,
+        "sources": sources,
+        "explanation": (
+            f"Created {distance_m:g}m buffer for entity {entity_id}."
+            if features
+            else f"No entity found for {entity_id}; no buffer created."
+        ),
+        "confidence": 0.8 if features else 0.5,
+        "metadata": {"crs": GIS_METADATA["crs"]["epsg"], "topology_engine": "PostGIS"},
+    }
+
+
 @tools_router.get("/assets-impacted-by-event")
 def assets_impacted_by_event(
     event_id: Annotated[str, Query(description="risk_events.id")],
@@ -642,6 +971,69 @@ def routes_impacted_by_alert(
     return assets_impacted_by_event(event_id=event_id, entity_type="route", limit=limit) | {
         "tool": "routes_impacted_by_alert"
     }
+
+
+def trace_supply_chain(entity_id: str, limit: int = 30) -> dict[str, Any]:
+    """Return corridor-connected ports/facilities sharing a route with entity_id."""
+    from api.chains import chain_connected_rows  # noqa: PLC0415
+
+    params = {"entity_id": entity_id, "limit": limit}
+    rows = chain_connected_rows(entity_id, limit)
+    features = []
+    sources: list[str] = []
+    for r in rows:
+        if r.get("source_name") and r["source_name"] not in sources:
+            sources.append(r["source_name"])
+        features.append(
+            {
+                "type": "Feature",
+                "id": r["id"],
+                "properties": {
+                    "entity_type": r["entity_type"],
+                    "subtype": r.get("subtype"),
+                    "name": r.get("name"),
+                    "source_name": r.get("source_name"),
+                    "confidence": r.get("confidence"),
+                    "chain_confidence": r.get("chain_confidence"),
+                    "via_route_id": r.get("via_route_id"),
+                    "via_route_name": r.get("via_route_name"),
+                    "via_route_subtype": r.get("via_route_subtype"),
+                },
+                "geometry": r["geometry"],
+            }
+        )
+    n = len(features)
+    return {
+        "tool": "trace_supply_chain",
+        "parameters": params,
+        "count": n,
+        "type": "FeatureCollection",
+        "features": features,
+        "sources": sorted(set(sources)),
+        "explanation": f"{n} asset{'s' if n != 1 else ''} share a transportation corridor with entity {entity_id}.",
+        "confidence": 0.75,
+    }
+
+
+def find_chain_assets(name: str, entity_type: str = "port", limit: int = 30) -> dict[str, Any]:
+    """Search for a named entity then return its corridor-connected peers."""
+    anchor = search_entities(q=name, entity_type=entity_type, limit=1)  # type: ignore[arg-type]
+    if anchor["count"] == 0:
+        return {
+            "tool": "find_chain_assets",
+            "parameters": {"name": name, "entity_type": entity_type, "limit": limit},
+            "count": 0,
+            "type": "FeatureCollection",
+            "features": [],
+            "sources": [],
+            "explanation": f"No entity named '{name}' found.",
+            "confidence": 0.5,
+        }
+    found_id = anchor["features"][0]["id"]
+    result = trace_supply_chain(found_id, limit)
+    result["tool"] = "find_chain_assets"
+    result["parameters"] = {"name": name, "entity_type": entity_type, "limit": limit}
+    return result
 
 
 @tools_router.get("/summarize-asset-exposure")

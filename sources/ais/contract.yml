@@ -1,0 +1,21 @@
+source_name: ais_vessels
+api_url: http://data.aishub.net/ws.php
+auth_required: true
+refresh_rate: hourly
+raw_schema: aishub_json_array
+canonical_entities_created:
+  - geo_entities
+cleaning_rules:
+  - requires AIS_API_KEY environment variable (AISHub username)
+  - bounding box matches USGS quakes extent (lat 38.9-42.2, lon -75.0 to -71.5)
+  - use MMSI as source_entity_id (globally unique vessel identifier)
+  - use SHIPNAME if present, else "MMSI {MMSI}"
+  - upsert updates position in place via last_seen_at
+  - store speed, heading, destination, ship_type in source_tags
+join_keys:
+  - MMSI
+geo_fields:
+  - LONGITUDE / LATITUDE (Point, WGS84)
+confidence_score: 0.85
+license: AISHub Community License
+attribution: AISHub.net — community AIS vessel tracking data

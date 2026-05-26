@@ -88,7 +88,7 @@ Weather stations and stream gauges as separate toggles feel a bit widget-y. Alte
 - [ ] **More data sources** (see links below) — EIA energy/fuel data, EPA sites, GDACS global disasters, USASpending for contract visibility, OpenCorporates for company linkage
 
 ### Medium term
-- [ ] **MCP server** — expose tools as an MCP endpoint so external agents (Claude Desktop, other LLMs) can query the supply chain knowledge graph natively. `gofastmcp.com` is the right lib.
+- [x] **MCP server** — expose tools as an MCP endpoint so external agents (Claude Desktop, other LLMs) can query the supply chain knowledge graph natively. `gofastmcp.com` is the right lib.
 - [ ] **Live sensor data** — USGS instantaneous values (`waterservices.usgs.gov/nwis/iv/`) to pull current gage height and flow for stream gauges; surface in tooltip and use in risk scoring
 - [ ] **Vessel tracking** — AIS data (MarineTraffic, or free NOAA AIS feeds) to overlay live vessel positions near ports
 - [ ] **FAA/DOT data** — transportation.gov API for freight movement, port call data

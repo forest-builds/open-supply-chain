@@ -1,0 +1,22 @@
+source_name: epa_tri
+api_url: https://data.epa.gov/efservice/TRI_FACILITY
+auth_required: false
+refresh_rate: weekly
+raw_schema: epa_envirofacts_tri_facility_json
+canonical_entities_created:
+  - geo_entities
+cleaning_rules:
+  - query TRI_FACILITY by STATE_ABBR for NY, NJ, CT (max 10000 rows each)
+  - prefer pref_latitude/pref_longitude (decimal degrees) over fac_latitude/fac_longitude (DDMMSS)
+  - longitude is stored as positive degrees West — negate when creating geometry
+  - skip records where fac_closed_ind is '1' or 'Y'
+  - skip records missing usable coordinates
+  - use tri_facility_id as source_entity_id
+join_keys:
+  - tri_facility_id
+geo_fields:
+  - pref_latitude / pref_longitude (decimal degrees, lon is positive West → negate)
+  - fac_latitude / fac_longitude (DDMMSS fallback)
+confidence_score: 0.90
+license: U.S. Government Work (public domain)
+attribution: U.S. Environmental Protection Agency — Toxic Release Inventory (TRI) via Envirofacts
