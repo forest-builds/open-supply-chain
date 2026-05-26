@@ -241,31 +241,27 @@ def test_eia_run_skips_without_api_key(monkeypatch, capsys):
 
 
 def test_epa_fetch_normalize_and_run_dry(monkeypatch, tmp_path):
-    payload = {
-        "Results": {
-            "Facilities": [
-                {
-                    "RegistryID": "1101",
-                    "FacilityLatitude": "40.3",
-                    "FacilityLongitude": "-74.3",
-                    "FacilityName": "Hazmat Place",
-                    "FacilityCity": "Newark",
-                },
-                {"RegistryID": "bad", "FacilityLatitude": "", "FacilityLongitude": "-74.3"},
-            ]
-        }
-    }
+    payload = [
+        {
+            "tri_facility_id": "1101",
+            "pref_latitude": "40.3",
+            "pref_longitude": "74.3",
+            "facility_name": "Hazmat Place",
+            "city_name": "Newark",
+        },
+        {"tri_facility_id": "bad", "pref_latitude": "", "pref_longitude": "74.3"},
+    ]
     monkeypatch.setattr(epa.requests, "get", lambda *_, **__: FakeResponse(payload))
     monkeypatch.setattr(epa, "RAW_DIR", tmp_path)
 
-    fetched = epa.fetch_facilities("NJ", "RCRA")
-    records = epa.normalize_facilities(fetched, "hazmat_site", "RCRA")
+    fetched = epa.fetch_facilities("NJ")
+    records = epa.normalize_facilities(fetched)
     epa.run(dry_run=True)
     conn = FakeConn()
     source_id = epa.upsert_source(
         conn,
         {
-            "source_name": "epa_echo",
+            "source_name": "epa_tri",
             "api_url": "http://example.test",
             "auth_required": False,
             "refresh_rate": "weekly",
@@ -273,32 +269,28 @@ def test_epa_fetch_normalize_and_run_dry(monkeypatch, tmp_path):
     )
     epa.upsert_geo_entities(conn, source_id, records)
 
-    assert epa.payload_hash(payload) == epa.payload_hash(dict(payload))
+    assert epa.payload_hash(payload) == epa.payload_hash(list(payload))
     assert len(records) == 1
-    assert records[0]["source_tags"]["program"] == "RCRA"
-    assert (tmp_path / "nj_rcra.json").exists()
+    assert records[0]["source_tags"]["city_name"] == "Newark"
+    assert (tmp_path / "tri_nj.json").exists()
     assert any("geo_entities" in sql for sql, _ in conn.calls)
 
 
 def test_epa_run_loads_and_handles_http_error(monkeypatch, tmp_path):
-    payload = {
-        "Results": {
-            "FacilitiesExtract": [
-                {
-                    "FacilityID": "2202",
-                    "Latitude83": "40.6",
-                    "Longitude83": "-74.6",
-                    "FacilityNm": "EPA Fallback",
-                    "CityName": "Jersey City",
-                }
-            ]
+    payload = [
+        {
+            "tri_facility_id": "2202",
+            "pref_latitude": "40.6",
+            "pref_longitude": "74.6",
+            "facility_name": "EPA Fallback",
+            "city_name": "Jersey City",
         }
-    }
+    ]
     calls = []
 
-    def fake_fetch(state: str, program_code: str):
-        calls.append((state, program_code))
-        if state == "NY" and program_code == "CERCLA":
+    def fake_fetch(state: str, start: int = 0):
+        calls.append((state, start))
+        if state == "NY" and start == epa.PAGE_SIZE:
             raise epa.requests.HTTPError("too broad")
         return payload
 
@@ -309,7 +301,7 @@ def test_epa_run_loads_and_handles_http_error(monkeypatch, tmp_path):
         epa,
         "load_contract",
         lambda: {
-            "source_name": "epa_echo",
+            "source_name": "epa_tri",
             "api_url": "http://example.test",
             "auth_required": False,
             "refresh_rate": "weekly",
@@ -318,11 +310,11 @@ def test_epa_run_loads_and_handles_http_error(monkeypatch, tmp_path):
     monkeypatch.setattr(epa, "db_connection", lambda: conn)
 
     epa.run(dry_run=False)
-    records = epa.normalize_facilities(payload, "superfund_site", "CERCLA")
+    records = epa.normalize_facilities(payload)
 
     assert records[0]["name"] == "EPA Fallback"
     assert ("COMMIT", None) in conn.calls
-    assert ("NY", "CERCLA") in calls
+    assert ("NY", 0) in calls
 
 
 def test_gdacs_parse_normalize_hash_and_db_paths(monkeypatch, tmp_path):
@@ -421,29 +413,26 @@ def test_usaspending_fetch_normalize_hash_and_run_dry(monkeypatch, tmp_path):
             {
                 "Award ID": "A1",
                 "Recipient Name": "Logistics Co",
-                "recipient_uei": "UEI1",
                 "NAICS Code": "4841",
                 "NAICS Description": "Trucking",
                 "Award Amount": "1000",
                 "Awarding Agency": "Agency",
                 "Period of Performance Current End Date": "2026-01-01",
-                "recipient_location": {
-                    "latitude": "40.5",
-                    "longitude": "-74.5",
-                    "state_code": "NJ",
-                    "city_name": "Newark",
-                },
+                "Place of Performance City": "Newark",
+                "Place of Performance State Code": "NJ",
+                "Place of Performance Zip5": "07102",
             },
             {
                 "Award ID": "A2",
-                "recipient_uei": "UEI2",
-                "recipient_location": {"latitude": "", "longitude": "-74.5"},
+                "Recipient Name": "No State Co",
+                "Place of Performance City": "Newark",
             },
         ],
-        "page_metadata": {"total": 2},
+        "page_metadata": {"hasNext": False},
     }
     monkeypatch.setattr(usaspending.requests, "post", lambda *_, **__: FakeResponse(page_payload))
     monkeypatch.setattr(usaspending, "RAW_DIR", tmp_path)
+    monkeypatch.setattr(usaspending, "_geocode_city_state", lambda city, state: (40.5, -74.5))
 
     fetched = usaspending.fetch_awards_page(1)
     records = usaspending.normalize_awards(fetched["results"])
@@ -463,7 +452,7 @@ def test_usaspending_fetch_normalize_hash_and_run_dry(monkeypatch, tmp_path):
 
     assert usaspending.payload_hash(page_payload) == usaspending.payload_hash(dict(page_payload))
     assert len(records) == 1
-    assert records[0]["source_entity_id"] == "UEI1"
+    assert records[0]["source_entity_id"] == "A1"
     assert records[0]["source_tags"]["award_amount_usd"] == 1000.0
     assert (tmp_path / "logistics_contractors.json").exists()
     assert any("raw_ingestions" in sql for sql, _ in conn.calls)
@@ -476,24 +465,25 @@ def test_usaspending_run_loads_dedups_and_handles_errors(monkeypatch, tmp_path):
                 {
                     "Award ID": "A1",
                     "Recipient Name": "Logistics Co",
-                    "recipient_uei": "UEI1",
                     "Award Amount": "100",
-                    "recipient_location": {"latitude": "40.5", "longitude": "-74.5"},
+                    "Place of Performance City": "Newark",
+                    "Place of Performance State Code": "NJ",
                 },
                 {
                     "Award ID": "A2",
                     "Recipient Name": "Logistics Co Better",
-                    "recipient_uei": "UEI1",
                     "Award Amount": "200",
-                    "recipient_location": {"latitude": "40.5", "longitude": "-74.5"},
+                    "Place of Performance State Code": "NY",
                 },
                 {
                     "Award ID": "A3",
+                    "Recipient Name": "Bad Amount Co",
                     "Award Amount": "bad",
-                    "recipient_location": {"latitude": "40.6", "longitude": "-74.6"},
+                    "Place of Performance City": "Hartford",
+                    "Place of Performance State Code": "CT",
                 },
             ],
-            "page_metadata": {"total": usaspending.PAGE_SIZE + 1},
+            "page_metadata": {"hasNext": False},
         }
     }
 
@@ -505,6 +495,7 @@ def test_usaspending_run_loads_dedups_and_handles_errors(monkeypatch, tmp_path):
     conn = FakeConn()
     monkeypatch.setattr(usaspending, "RAW_DIR", tmp_path)
     monkeypatch.setattr(usaspending, "fetch_awards_page", fake_fetch)
+    monkeypatch.setattr(usaspending, "_geocode_city_state", lambda city, state: (40.5, -74.5))
     monkeypatch.setattr(
         usaspending,
         "load_contract",
@@ -521,6 +512,7 @@ def test_usaspending_run_loads_dedups_and_handles_errors(monkeypatch, tmp_path):
     records = usaspending.normalize_awards(pages[1]["results"])
 
     assert len(records) == 3
+    assert records[1]["confidence"] == 0.50
     assert records[-1]["source_tags"]["award_amount_usd"] is None
     assert ("COMMIT", None) in conn.calls
 
@@ -538,13 +530,13 @@ def test_pipeline_main_dispatches_dry_run(monkeypatch, module):
 
 @pytest.mark.parametrize(
     ("module", "contract_name"),
-    [
-        (ais, "ais_vessels"),
-        (eia, "eia"),
-        (epa, "epa_echo"),
-        (gdacs, "gdacs"),
-        (usaspending, "usaspending"),
-    ],
+        [
+            (ais, "ais_vessels"),
+            (eia, "eia"),
+            (epa, "epa_tri"),
+            (gdacs, "gdacs"),
+            (usaspending, "usaspending"),
+        ],
 )
 def test_new_source_contracts_load(module, contract_name: str):
     path = Path(module.CONTRACT_PATH)
