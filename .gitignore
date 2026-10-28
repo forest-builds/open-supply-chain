@@ -229,3 +229,5 @@ __marimo__/
 _bmad-output/
 
 .gitnexus/
+.DS_Store
+app/map_ui/.vite/
