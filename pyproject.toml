@@ -2,7 +2,7 @@
 name = "open-supply-chain"
 version = "0.1.0"
 description = "Open supply-chain intelligence infrastructure."
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
   "anthropic>=0.100.0",
   "fastapi>=0.115.0",
@@ -16,24 +16,51 @@ dependencies = [
   "pyyaml>=6.0.2",
   "requests>=2.32.0",
   "shapely>=2.0.6",
-  "uvicorn[standard]>=0.32.0"
+  "uvicorn[standard]>=0.32.0",
+  "the-state-api",
+  "the-state-mcp-server",
 ]
 
 [project.optional-dependencies]
 dev = [
   "pytest>=8.3.0",
   "pytest-cov>=6.0.0",
+  "pytest-asyncio>=0.23",
+  "anyio>=4.4",
   "ruff>=0.8.0"
 ]
 
 [tool.pytest.ini_options]
+pythonpath = ["."]
 testpaths = ["tests"]
 addopts = "--cov=api --cov=pipelines --cov=sources --cov-report=term-missing --cov-fail-under=90"
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.setuptools.packages.find]
 include = ["api*", "pipelines*", "sources*"]
-exclude = ["app*", "db*", "docs*"]
+exclude = ["app*", "db*", "docs*", "the_state*"]
+
+[tool.uv.workspace]
+members = [
+  "the_state/api",
+  "the_state/mcp_server",
+  "the_state/packages/state_products",
+  "the_state/packages/decision_apis",
+  "the_state/packages/payments",
+  "the_state/packages/sdk",
+  "the_state/packages/state_engine",
+  "the_state/packages/ingestion",
+]
+
+[tool.uv.sources]
+the-state-api = { workspace = true }
+the-state-mcp-server = { workspace = true }
+the-state-products = { workspace = true }
+the-state-decision-apis = { workspace = true }
+the-state-payments = { workspace = true }
+the-state-sdk = { workspace = true }
+the-state-engine = { workspace = true }
+the-state-ingestion = { workspace = true }
